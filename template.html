@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Prototype: FEATURE NAME</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class', theme: { extend: { /* project tokens go here */ } } }
+  </script>
+</head>
+<body class="min-h-dvh bg-neutral-100 text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100">
+
+  <header class="sticky top-0 z-20 border-b border-black/10 bg-neutral-100/90 pt-[env(safe-area-inset-top)] backdrop-blur dark:border-white/10 dark:bg-neutral-950/90">
+    <div class="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+      <h1 class="mr-auto text-sm font-semibold">FEATURE NAME</h1>
+
+      <nav id="tabs" class="-mx-4 flex w-[calc(100%+2rem)] gap-1 overflow-x-auto px-4 sm:mx-0 sm:w-auto sm:px-0" aria-label="Versions"></nav>
+
+      <div id="scale" class="hidden items-center gap-1" aria-label="Phone scale">
+        <button data-scale="100" class="h-9 rounded-md px-2.5 text-xs font-medium">100%</button>
+        <button data-scale="75" class="h-9 rounded-md px-2.5 text-xs font-medium">75%</button>
+        <button data-scale="50" class="h-9 rounded-md px-2.5 text-xs font-medium">50%</button>
+      </div>
+
+      <button id="theme" class="h-9 rounded-md px-2.5 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10">Dark</button>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+
+    <!-- One <section> per version. data-version is the id used in the URL hash (#A). -->
+    <section data-version="A" data-name="Direction name" class="version">
+      <p class="mb-4 text-sm text-neutral-500"><strong class="text-neutral-900 dark:text-neutral-100">A · Direction name.</strong> One line on the idea.</p>
+      <!-- Web/desktop UI: build it responsive, it must work from 360px wide up. -->
+      <!-- Phone screens: wrap each in .phone; the scale control appears automatically. -->
+      <div class="phone-row flex flex-wrap justify-center gap-6">
+        <div class="phone w-[393px] h-[852px] shrink-0 overflow-hidden rounded-[55px] border-[10px] border-neutral-900 bg-white shadow-xl dark:bg-black">
+          <!-- screen content -->
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    const versions = [...document.querySelectorAll('.version')]
+    const tabs = document.getElementById('tabs')
+    const hasPhones = document.querySelector('.phone') !== null
+    const params = new URLSearchParams(location.search)
+
+    const tabClass = 'h-9 shrink-0 whitespace-nowrap rounded-md px-3 text-xs font-medium'
+    const on = ['bg-neutral-900', 'text-white', 'dark:bg-white', 'dark:text-neutral-900']
+    const off = ['hover:bg-black/5', 'dark:hover:bg-white/10']
+
+    const ids = [...versions.map(v => v.dataset.version), 'all']
+    for (const id of ids) {
+      const a = document.createElement('a')
+      a.href = '#' + id
+      a.dataset.id = id
+      a.className = tabClass + ' inline-flex items-center'
+      const v = versions.find(v => v.dataset.version === id)
+      a.textContent = v ? `${id} · ${v.dataset.name}` : 'All'
+      tabs.append(a)
+    }
+
+    function show() {
+      const id = location.hash.slice(1) || versions[0].dataset.version
+      for (const v of versions) v.hidden = id !== 'all' && v.dataset.version !== id
+      for (const v of versions) v.classList.toggle('mb-12', id === 'all')
+      for (const a of tabs.children) {
+        const active = a.dataset.id === id
+        a.classList.remove(...on, ...off)
+        a.classList.add(...(active ? on : off))
+        if (active) a.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      }
+      const phonesShown = versions.some(v => !v.hidden && v.querySelector('.phone'))
+      document.getElementById('scale').classList.toggle('hidden', !phonesShown)
+      document.getElementById('scale').classList.toggle('flex', phonesShown)
+    }
+    addEventListener('hashchange', show)
+    show()
+
+    // Phone scale: 100 / 75 / 50. Until the user picks one, use the largest
+    // that fits the screen width.
+    if (hasPhones) {
+      const box = document.getElementById('scale')
+      let picked = Number(params.get('scale')) || 0
+      const fit = () => [100, 75, 50].find(s => 413 * s / 100 <= document.documentElement.clientWidth - 32) || 50
+      function setScale(s) {
+        for (const p of document.querySelectorAll('.phone')) p.style.zoom = s / 100
+        for (const b of box.children) {
+          const active = Number(b.dataset.scale) === s
+          b.classList.remove(...on, ...off)
+          b.classList.add(...(active ? on : off))
+        }
+      }
+      for (const b of box.children) b.onclick = () => setScale(picked = Number(b.dataset.scale))
+      addEventListener('resize', () => picked || setScale(fit()))
+      setScale(picked || fit())
+    }
+
+    const themeBtn = document.getElementById('theme')
+    function setTheme(dark) {
+      document.documentElement.classList.toggle('dark', dark)
+      themeBtn.textContent = dark ? 'Light' : 'Dark'
+    }
+    themeBtn.onclick = () => setTheme(!document.documentElement.classList.contains('dark'))
+    setTheme(params.get('theme') === 'dark')
+  </script>
+</body>
+</html>
