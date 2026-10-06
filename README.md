@@ -49,6 +49,7 @@ Keep going in the same session and everything lands in the same app, under the s
 | "two more heroes" | D and E next to A, B, C |
 | "now the pricing page" | a new prototype in the same app |
 | "B, but with a map" | new variants built from B |
+| "take B's hero further" | a new prototype nested under B, then its CTA under that |
 | "try it on the phone" | the variants in phone frames |
 | "build the winner" | the real feature in your codebase, with screenshots |
 | "put these in a doc I can share" | a Claude Doc with a static snapshot of each variant |
@@ -57,7 +58,7 @@ Keep going in the same session and everything lands in the same app, under the s
 
 ### Every variant is a real page
 
-Breadcrumbs go session › prototype › variant. Each name opens an overview, each chevron jumps anywhere, and the tabs or the arrow keys step through variants.
+Breadcrumbs go session › prototype › variant. Each name opens an overview, each chevron jumps anywhere, and the tabs or the arrow keys step through variants. A sidebar shows the same thing as a tree, with a prototype built from part of another variant (its hero, then that hero's CTA) nested under the variant it came from. Hide it with ⌘\ for breadcrumbs alone.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/menu-dark.png">

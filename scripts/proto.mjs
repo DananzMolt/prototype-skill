@@ -3,6 +3,7 @@
 //
 //   proto up [--name "Session name"] [--stack react|vue]   create or restart, print the URL
 //   proto add <slug> --title "…" --variants "A:Name,B:Name" [--ask "…"] [--kind phone]
+//             [--from <slug>/<letter>]   built from that variant: nested under it in the page
 //   proto shoot [route…] [--theme dark] [--focus] [--click <css>]  screenshots, e.g. hero/A hero
 //   proto snap <slug>[/<letter>]… [--width 672]   static HTML snapshots for a Claude Doc
 //   proto archive <slug> [--off]    proto keep [--off]      proto url    proto stack
@@ -220,6 +221,26 @@ function add() {
   if (flags.title) meta.title = flags.title
   if (flags.ask) meta.ask = flags.ask
   if (flags.kind) meta.kind = flags.kind === 'phone' ? 'phone' : 'web'
+  // Built from another prototype (or one of its variants): the page nests it under that one.
+  if (flags.from) {
+    const [parent, variant = ''] = String(flags.from).split('/')
+    if (parent === slug) die('a prototype can\'t be built from itself')
+    const parentMeta = join(dir, 'src', 'protos', parent, 'meta.ts')
+    if (!existsSync(parentMeta)) die(`--from: no prototype "${parent}" in this session`)
+    if (variant && !readFileSync(parentMeta, 'utf8').includes(`"${variant}":`)) die(`--from: "${parent}" has no variant ${variant}`)
+    // Walk up from the parent; meeting this prototype again would make a loop.
+    const seen = new Set()
+    for (let up = parent; up && !seen.has(up);) {
+      if (up === slug) die(`--from: "${parent}" is already built from "${slug}"`)
+      seen.add(up)
+      const m = join(dir, 'src', 'protos', up, 'meta.ts')
+      up = existsSync(m) ? (readFileSync(m, 'utf8').match(/"from":\s*"([^"/]+)/) || [])[1] : undefined
+    }
+    meta.from = variant ? `${parent}/${variant}` : parent
+  }
+  // Keep the variant list last in meta.ts, where it is easiest to read.
+  const { variants: names, ...head } = meta
+  meta = { ...head, variants: names }
   const list = String(flags.variants || '').split(',').map(x => x.trim()).filter(Boolean)
   mkdirSync(pdir, { recursive: true })
   const stub = readFileSync(join(APP, 'stubs', kit.stub), 'utf8')
@@ -361,7 +382,7 @@ const commands = {
   stack: () => { const d = detectStack(projectRoot()); console.log(`${d.stack} (${d.why})`) },
 }
 if (!commands[cmd]) {
-  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 13).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
+  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 14).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
   process.exit(cmd ? 1 : 0)
 }
 await commands[cmd]()

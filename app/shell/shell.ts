@@ -1,5 +1,6 @@
-// The session shell: breadcrumbs whose names open lobbies and whose chevrons jump, variant
-// tabs, edge arrows, focus mode with a growing dock, and a crossfade between designs.
+// The session shell: breadcrumbs whose names open lobbies and whose chevrons jump, a sidebar
+// tree (a prototype built from another one's variant sits under that variant), variant tabs,
+// edge arrows, focus mode with a growing dock, and a crossfade between designs.
 //
 // One rule holds it together: the chrome re-renders freely, the designs never do. Each
 // place (session lobby, prototype lobby, one variant) is a layer with its components
@@ -10,7 +11,7 @@ import { ic, esc, ON, TAB_ON, TAB_OFF, IB, SEP, pulse, pop, item, ago, clock } f
 import { dock, edge, smooth, runDock, restoreEdgeLabels, stageHover, canHover, installPointerTracking, fadeOut } from './motion'
 
 export type Variant = { id: string; name: string; component: unknown; file: string }
-export type Proto = { id: string; title: string; ask: string; kind: 'web' | 'phone'; created: string; archived: boolean; variants: Variant[] }
+export type Proto = { id: string; title: string; ask: string; kind: 'web' | 'phone'; created: string; archived: boolean; from?: { proto: string; variant: string }; variants: Variant[] }
 export type Session = { id: string; name: string; path: string; createdAt: string; url?: string; localUrl?: string }
 type Mount = (el: HTMLElement, component: any) => () => void
 type Place = { view: 'session' } | { view: 'proto'; proto: string } | { view: 'variant'; proto: string; variant: string }
@@ -31,6 +32,9 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     focus: false,
     open: null as string | null,
     archived: false,
+    side: q.has('side') ? q.get('side') !== '0' : localStorage.getItem('proto-side') !== '0',
+    drawer: false,
+    tree: new Set<string>(),
     scale: 0,
     stack: q.has('stack') ? q.get('stack') !== '0' : localStorage.getItem('proto-lobby') === 'stack',
     dark: q.get('theme') ? q.get('theme') === 'dark' : stored ? stored === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches,
@@ -64,15 +68,41 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     return newest ? { view: 'proto', proto: newest.id } : { view: 'session' }
   }
 
+  // ---------- nesting: a prototype built from another one's variant sits under it ----------
+  const parentOf = (p: Proto) => { const a = p.from && byId(p.from.proto); return a && !a.archived && a.id !== p.id ? a : undefined }
+  const isRoot = (p: Proto) => !parentOf(p)
+  /** What a prototype was built from, oldest first, each with the variant the next one came from. */
+  const lineage = (p: Proto) => {
+    const out: { p: Proto; v: string }[] = []
+    const seen = new Set([p.id])
+    for (let q = p, a = parentOf(p); a && !seen.has(a.id); q = a, a = parentOf(a)) { seen.add(a.id); out.unshift({ p: a, v: q.from!.variant }) }
+    return out
+  }
+  const kidsOf = (p: Proto, v?: string) => active().filter(k => k !== p && parentOf(k) === p && (v === undefined || k.from!.variant === v))
+  // Built from the prototype as a whole, or from a variant that no longer exists.
+  const looseKids = (p: Proto) => kidsOf(p).filter(k => !p.variants.some(v => v.id === k.from!.variant))
+  const family = (p: Proto, depth = 1): { p: Proto; depth: number }[] =>
+    [...p.variants.flatMap(v => kidsOf(p, v.id)), ...looseKids(p)].flatMap(k => [{ p: k, depth }, ...family(k, depth + 1)])
+  const treeOrder = () => active().filter(isRoot).flatMap(p => [{ p, depth: 0 }, ...family(p)])
+  const editingUnder = (p: Proto): boolean => editing(p.id) || kidsOf(p).some(editingUnder)
+  const nestKey = () => active().map(p => `${p.id}<${p.from?.proto ?? ''}/${p.from?.variant ?? ''}:${p.title}:${p.variants.length}`).join('|')
+  const wide = () => matchMedia('(min-width: 1024px)').matches
+
   // ---------- skeleton ----------
-  root.innerHTML = `<div class="flex h-dvh flex-col bg-white text-[13px] text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
-    <header data-bar class="relative z-30 flex h-12 shrink-0 items-center gap-1 border-b border-black/[.07] px-2 dark:border-white/10"></header>
-    <div data-tabs></div>
-    <div data-zone>
-      <div data-layers class="absolute inset-0"></div>
-      <div data-overlay></div>
+  root.innerHTML = `<div class="flex h-dvh bg-white text-[13px] text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
+    <aside data-side></aside>
+    <div class="flex min-w-0 flex-1 flex-col">
+      <header data-bar class="relative z-30 flex h-12 shrink-0 items-center gap-1 border-b border-black/[.07] px-2 dark:border-white/10"></header>
+      <div data-tabs></div>
+      <div data-zone>
+        <div data-layers class="absolute inset-0"></div>
+        <div data-overlay></div>
+      </div>
     </div>
+    <div data-drawer></div>
   </div>`
+  const side = root.querySelector<HTMLElement>('[data-side]')!
+  const drawer = root.querySelector<HTMLElement>('[data-drawer]')!
   const bar = root.querySelector<HTMLElement>('[data-bar]')!
   const tabs = root.querySelector<HTMLElement>('[data-tabs]')!
   const zone = root.querySelector<HTMLElement>('[data-zone]')!
@@ -83,9 +113,9 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   let layer: Layer | null = null
 
   const refsFor = (p: Place): unknown[] => {
-    if (p.view === 'session') return newestFirst().flatMap(q => [q.id, q.title, ...q.variants.slice(0, 1).flatMap(v => [v.component, v.name])])
+    if (p.view === 'session') return [nestKey(), ...lobbyRoots().flatMap(q => [q.id, q.title, ...q.variants.slice(0, 1).flatMap(v => [v.component, v.name])])]
     const proto = byId(p.proto)!
-    if (p.view === 'proto') return [st.stack, proto.title, proto.kind, ...proto.variants.flatMap(v => [v.id, v.name, v.component])]
+    if (p.view === 'proto') return [st.stack, nestKey(), proto.title, proto.kind, ...proto.variants.flatMap(v => [v.id, v.name, v.component])]
     const v = proto.variants.find(v => v.id === p.variant)!
     return [proto.kind, v.component]
   }
@@ -110,7 +140,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     el.innerHTML = `<div class="h-full overflow-auto">${inner}</div>`
     if (p.view === 'variant') { const proto = byId(p.proto)!; mountAll([proto.variants.find(v => v.id === p.variant)!]) }
     else if (p.view === 'proto') mountAll(byId(p.proto)!.variants)
-    else mountAll(newestFirst().flatMap(q => q.variants.slice(0, 1)))
+    else mountAll(lobbyRoots().flatMap(q => q.variants.slice(0, 1)))
     return { el, refs: refsFor(p), dispose: () => unmounts.forEach(u => { try { u() } catch { /* already gone */ } }) }
   }
 
@@ -146,10 +176,14 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const moved = JSON.stringify(p) !== JSON.stringify(st.place) || !layer
     st.place = p
     st.open = null
+    st.drawer = false
     if (p.view !== 'variant') st.focus = false
+    // The sidebar opens the branch you're on, so its row is always there to see.
+    if (p.view !== 'session') { const q = byId(p.proto)!; for (const x of [...lineage(q).map(a => a.p), q]) st.tree.add(x.id) }
     localStorage.setItem(`proto-place-${session.id}`, hashOf(p))
     if (moved) show(fade && !!layer)
     render()
+    if (moved) side.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' })
   }
   addEventListener('hashchange', () => arrive(parseHash() ?? defaultPlace(), true))
 
@@ -176,36 +210,49 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   }
 
   const newestFirst = () => active().slice().reverse()
+  // The session lobby has a card per top-level prototype; what was built from it is listed in it.
+  const lobbyRoots = () => newestFirst().filter(isRoot)
   const GRID = 'grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4'
+  const NEST = 'bg-sky-500/10 text-sky-700 hover:bg-sky-500/20 dark:text-sky-300'
+  const fromChip = (p: Proto) => {
+    const a = parentOf(p)
+    if (!a) return ''
+    const v = p.from!.variant
+    return `<button data-act="${v && a.variants.some(x => x.id === v) ? `pv:${esc(a.id)}:${esc(v)}` : `lobby:proto:${esc(a.id)}`}" class="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${NEST}">${ic('from', 'size-3.5')}<span class="truncate">Built from ${esc(a.title)}${v ? ` · ${esc(v)}` : ''}</span></button>`
+  }
+  const kidChips = (p: Proto, v: string) => kidsOf(p, v).map(k => `<button data-act="lobby:proto:${esc(k.id)}" class="mt-1.5 flex h-8 w-full items-center gap-1.5 rounded-lg px-2 text-xs font-medium ${NEST}">${ic('branch', 'size-3.5')}<span class="truncate">${esc(k.title)}</span><span class="ml-auto tabular-nums opacity-70">${k.variants.length}</span></button>`).join('')
 
   function sessionLobby() {
-    const list = newestFirst()
+    const list = lobbyRoots()
     if (!list.length) return `<div class="grid min-h-full place-items-center p-8 text-center"><div><div class="mx-auto mb-4 grid size-10 place-items-center">${pulse('size-2.5', st.live)}</div><h2 class="text-base font-semibold">${esc(session.name)}</h2><p class="mt-1 text-zinc-500">Waiting for the first prototype. This page updates by itself.</p></div></div>`
-    return `<div class="p-4 sm:p-6"><div class="mb-5 flex flex-wrap items-end justify-between gap-2"><div><h2 class="text-xl font-semibold tracking-tight">${esc(session.name)}</h2><p class="text-xs text-zinc-500">${list.length} prototype${list.length === 1 ? '' : 's'} · started ${clock(session.createdAt)}</p></div><p data-lifecycle class="text-xs text-zinc-400">${esc(lifecycle())}</p></div>
-      <div class="${GRID}">${list.map(p => `<button data-act="lobby:proto:${esc(p.id)}" class="min-w-0 rounded-xl p-2 text-left ring-1 ring-black/[.07] hover:bg-zinc-50 hover:ring-black/20 dark:ring-white/10 dark:hover:bg-white/5">
+    const all = active().length
+    const nested = all - list.length
+    return `<div class="p-4 sm:p-6"><div class="mb-5 flex flex-wrap items-end justify-between gap-2"><div><h2 class="text-xl font-semibold tracking-tight">${esc(session.name)}</h2><p class="text-xs text-zinc-500">${all} prototype${all === 1 ? '' : 's'}${nested ? `, ${nested} built from others` : ''} · started ${clock(session.createdAt)}</p></div><p data-lifecycle class="text-xs text-zinc-400">${esc(lifecycle())}</p></div>
+      <div class="${GRID}">${list.map(p => `<div class="min-w-0 rounded-xl p-2 ring-1 ring-black/[.07] has-[[data-card]:hover]:bg-zinc-50 has-[[data-card]:hover]:ring-black/20 dark:ring-white/10 dark:has-[[data-card]:hover]:bg-white/5"><button data-card data-act="lobby:proto:${esc(p.id)}" class="block w-full min-w-0 text-left">
         ${p.variants.length ? `<div class="overflow-hidden rounded-md ring-1 ring-black/5 dark:ring-white/10">${thumb(p, 'aspect-[16/10]')}</div>` : '<div class="aspect-[16/10] rounded-md bg-zinc-900/[.03] dark:bg-white/[.04]"></div>'}
         <div class="mt-3 flex items-center gap-2 px-1"><span class="truncate font-semibold">${esc(p.title)}</span>${editing(p.id) ? pulse('size-1.5') : ''}<span class="ml-auto shrink-0 text-xs text-zinc-400">${p.variants.length} variant${p.variants.length === 1 ? '' : 's'} · ${clock(p.created)}</span></div>
-        <div class="truncate px-1 pb-1 text-xs text-zinc-500">${p.ask ? `“${esc(p.ask)}”` : ''}</div></button>`).join('')}</div></div>`
+        <div class="truncate px-1 pb-1 text-xs text-zinc-500">${p.ask ? `“${esc(p.ask)}”` : ''}</div></button>
+        ${family(p).map(({ p: k, depth }) => `<button data-act="lobby:proto:${esc(k.id)}" class="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-lg pr-1 text-left text-xs text-zinc-600 hover:bg-zinc-900/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]" style="padding-left:${4 + 14 * (depth - 1)}px">${ic('branch', 'size-3.5 text-sky-500')}<span class="truncate">${esc(k.title)}</span>${editingUnder(k) ? pulse('size-1.5') : ''}${k.from!.variant ? `<span class="shrink-0 text-zinc-400">from ${esc(k.from!.variant)}</span>` : ''}<span class="ml-auto shrink-0 tabular-nums text-zinc-400">${k.variants.length}</span></button>`).join('')}</div>`).join('')}</div></div>`
   }
 
   function protoLobby(p: Proto) {
     const grid = protoGrid(p)
     const tab = (on: boolean, act: string, icon: string, label: string) => `<button data-act="${act}" aria-pressed="${on}" title="${label}" class="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs ${on ? TAB_ON : TAB_OFF}">${ic(icon, 'size-3.5')}<span class="hidden sm:inline">${label}</span></button>`
     const layoutToggle = `<div class="flex gap-0.5 rounded-lg bg-zinc-900/[.04] p-0.5 dark:bg-white/[.06]">${tab(!st.stack, 'stack:0', 'grid', 'Grid')}${tab(st.stack, 'stack:1', 'rows', 'Full size')}</div>`
-    return `<div class="flex flex-wrap items-end justify-between gap-2 px-4 pt-5 sm:px-6"><div><h2 class="text-xl font-semibold tracking-tight">${esc(p.title)}</h2><p class="text-xs text-zinc-500">${p.ask ? `“${esc(p.ask)}” · ` : ''}${p.variants.length} variant${p.variants.length === 1 ? '' : 's'} · ${clock(p.created)}</p></div>${p.variants.length ? layoutToggle : '<p class="text-xs text-zinc-400">No variants yet</p>'}</div>
+    return `<div class="flex flex-wrap items-end justify-between gap-2 px-4 pt-5 sm:px-6"><div class="min-w-0">${parentOf(p) ? `<div class="mb-2">${fromChip(p)}</div>` : ''}<h2 class="text-xl font-semibold tracking-tight">${esc(p.title)}</h2><p class="text-xs text-zinc-500">${p.ask ? `“${esc(p.ask)}” · ` : ''}${p.variants.length} variant${p.variants.length === 1 ? '' : 's'} · ${clock(p.created)}</p></div>${p.variants.length ? layoutToggle : '<p class="text-xs text-zinc-400">No variants yet</p>'}</div>
       ${st.stack ? stack(p) : grid}`
   }
 
   function protoGrid(p: Proto) {
-    return `<div class="${GRID} p-4 sm:p-6">${p.variants.map(v => `<button data-act="pv:${esc(p.id)}:${v.id}" class="group min-w-0 text-left">
+    return `<div class="${GRID} p-4 sm:p-6">${p.variants.map(v => `<div class="min-w-0"><button data-act="pv:${esc(p.id)}:${v.id}" class="group block w-full min-w-0 text-left">
         <div class="overflow-hidden rounded-lg ring-1 ring-black/10 transition group-hover:ring-2 group-hover:ring-zinc-900 dark:ring-white/10 dark:group-hover:ring-white">${thumb(p, 'aspect-[16/10]')}</div>
-        <div class="mt-2 flex items-center gap-2"><span class="font-semibold">${v.id}</span><span class="truncate text-zinc-500">${esc(v.name)}</span>${editing(p.id, v.id) ? `<span class="ml-auto inline-flex items-center gap-1.5 text-xs text-emerald-600">${pulse('size-1.5')}editing</span>` : ''}</div></button>`).join('')}</div>`
+        <div class="mt-2 flex items-center gap-2"><span class="font-semibold">${v.id}</span><span class="truncate text-zinc-500">${esc(v.name)}</span>${editing(p.id, v.id) ? `<span class="ml-auto inline-flex items-center gap-1.5 text-xs text-emerald-600">${pulse('size-1.5')}editing</span>` : ''}</div></button>${kidChips(p, v.id)}</div>`).join('')}</div>`
   }
 
   // Every variant at full size, one after another, live. Each frame is at least as tall as the
   // stage (a grid, so a root with h-full fills it) and contains its own position:fixed.
   function stack(p: Proto) {
-    const head = (v: Variant) => `<div class="mb-3 flex h-8 min-w-0 items-center gap-2 ${p.kind === 'phone' ? 'justify-center' : ''}"><button data-act="pv:${esc(p.id)}:${v.id}" title="Open ${v.id}" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md hover:underline hover:decoration-zinc-400 hover:underline-offset-4"><span class="font-semibold">${v.id}</span><span class="truncate text-zinc-500">${esc(v.name)}</span></button>${editing(p.id, v.id) ? pulse('size-1.5') : ''}</div>`
+    const head = (v: Variant) => `<div class="mb-3 flex h-8 min-w-0 items-center gap-2 ${p.kind === 'phone' ? 'justify-center' : ''}"><button data-act="pv:${esc(p.id)}:${v.id}" title="Open ${v.id}" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md hover:underline hover:decoration-zinc-400 hover:underline-offset-4"><span class="font-semibold">${v.id}</span><span class="truncate text-zinc-500">${esc(v.name)}</span></button>${editing(p.id, v.id) ? pulse('size-1.5') : ''}${kidsOf(p, v.id).map(k => `<button data-act="lobby:proto:${esc(k.id)}" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${NEST}">${ic('branch', 'size-3.5')}${esc(k.title)}</button>`).join('')}</div>`
     if (p.kind === 'phone') return `<div class="flex flex-wrap justify-center gap-x-10 gap-y-8 p-4 sm:p-6">${p.variants.map(v => `<section data-stack-item class="min-w-0">${head(v)}<div data-phone class="${PHONE} [contain:layout_paint]" style="width:393px;height:852px"><div data-mount class="h-full overflow-y-auto"></div></div></section>`).join('')}</div>`
     return `<div class="space-y-8 py-4 sm:py-6">${p.variants.map(v => `<section data-stack-item><div class="px-4 sm:px-6">${head(v)}</div><div class="grid min-h-[var(--stage-h)] border-y border-black/[.07] bg-white [contain:layout_paint] dark:border-white/10 dark:bg-zinc-950"><div data-mount class="min-w-0"></div></div></section>`).join('')}</div>`
   }
@@ -241,12 +288,12 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       <div class="flex h-14 items-center justify-between px-4"><span class="text-zinc-700 dark:text-zinc-300">Appearance</span><div class="flex rounded-lg bg-zinc-900/[.04] p-0.5 dark:bg-white/[.06]">${([['light', 'sun', 'Light'], ['dark', 'moon', 'Dark']] as const).map(([m, i, l]) => { const on = st.dark === (m === 'dark'); return `<button data-act="theme:${m}" aria-pressed="${on}" class="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs ${on ? TAB_ON : TAB_OFF}">${ic(i, 'size-3.5')}${l}</button>` }).join('')}</div></div>${SEP}
       <div class="flex gap-2 p-3"><button data-act="keep" ${st.stopped ? 'disabled' : ''} class="h-9 flex-1 rounded-lg border border-black/10 text-xs font-medium hover:bg-zinc-900/[.03] disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5">${keep ? 'Don’t keep' : 'Keep forever'}</button><button data-act="stop" ${st.stopped ? 'disabled' : ''} class="h-9 flex-1 rounded-lg text-xs text-zinc-500 hover:bg-zinc-900/5 disabled:opacity-40 dark:hover:bg-white/10">Stop server</button></div>`
 
-    const protoRow = (q: Proto) => { const on = q.id === p?.id && view !== 'session'; return `<button data-act="proto:${esc(q.id)}" aria-current="${on}" class="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left ${on ? 'bg-zinc-900/[.05] dark:bg-white/[.08]' : 'hover:bg-zinc-900/[.03] dark:hover:bg-white/5'}">
+    const protoRow = ({ p: q, depth }: { p: Proto; depth: number }) => { const on = q.id === p?.id && view !== 'session'; return `<button data-act="proto:${esc(q.id)}" aria-current="${on}" class="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left ${on ? 'bg-zinc-900/[.05] dark:bg-white/[.08]' : 'hover:bg-zinc-900/[.03] dark:hover:bg-white/5'}" style="padding-left:${10 + 16 * depth}px">
         <span class="mt-[7px] flex size-1.5 shrink-0">${editing(q.id) ? pulse('size-1.5') : ''}</span>
-        <span class="min-w-0 flex-1"><span class="flex items-center gap-1.5 ${on ? 'font-semibold text-zinc-900 dark:text-white' : 'font-medium text-zinc-800 dark:text-zinc-200'}">${esc(q.title)}${q.kind === 'phone' ? ic('phone', 'size-3.5 text-zinc-400') : ''}</span>${q.ask ? `<span class="block truncate text-xs leading-5 text-zinc-500">“${esc(q.ask)}”</span>` : ''}</span>
+        <span class="min-w-0 flex-1"><span class="flex items-center gap-1.5 ${on ? 'font-semibold text-zinc-900 dark:text-white' : 'font-medium text-zinc-800 dark:text-zinc-200'}">${depth ? ic('branch', 'size-3.5 text-sky-500') : ''}${esc(q.title)}${q.kind === 'phone' ? ic('phone', 'size-3.5 text-zinc-400') : ''}</span>${q.ask ? `<span class="block truncate text-xs leading-5 text-zinc-500">“${esc(q.ask)}”</span>` : ''}</span>
         <span class="shrink-0 pt-px text-right text-[11px] leading-5 tabular-nums text-zinc-400">${q.variants.length} variant${q.variants.length === 1 ? '' : 's'}<br>${editing(q.id) ? '<span class="text-emerald-600">editing now</span>' : clock(q.created)}</span></button>` }
     const protoMenu = `<div class="px-3.5 pb-0.5 pt-3 text-[11px] font-medium text-zinc-400">Prototypes in this session</div>
-      <div class="max-h-[min(26rem,60vh)] space-y-px overflow-y-auto p-1">${active().map(protoRow).join('') || '<p class="px-3 py-4 text-xs text-zinc-400">None yet</p>'}</div>
+      <div class="max-h-[min(26rem,60vh)] space-y-px overflow-y-auto p-1">${treeOrder().map(protoRow).join('') || '<p class="px-3 py-4 text-xs text-zinc-400">None yet</p>'}</div>
       ${archived().length ? `${SEP}<div class="p-1.5"><button data-act="archived" class="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-xs text-zinc-400 hover:bg-zinc-900/[.03] hover:text-zinc-600 dark:hover:bg-white/5 dark:hover:text-zinc-200">${ic(st.archived ? 'chev' : 'right', 'size-3')}Archived<span class="ml-auto tabular-nums">${archived().length}</span></button>${st.archived ? archived().map(q => `<button data-act="proto:${esc(q.id)}" class="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-zinc-400 hover:bg-zinc-900/[.03] dark:hover:bg-white/5"><span class="size-1.5"></span><span class="line-through decoration-zinc-300">${esc(q.title)}</span><span class="ml-auto text-[11px] tabular-nums">${q.variants.length} variants</span></button>`).join('') : ''}</div>` : ''}`
 
     const col = (icon: string) => `<span class="flex w-6 shrink-0 justify-center text-zinc-500 dark:text-zinc-400">${icon}</span>`
@@ -258,8 +305,15 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
 
     const v = vs.find(v => v.id === vid)
     const initial = esc((session.name.trim()[0] || 'P').toUpperCase())
-    bar.innerHTML = `<nav class="flex min-w-0 items-center" aria-label="Breadcrumb">
+    // What this prototype was built from: one crumb per level, each opening the variant it came
+    // from. Narrow bars keep the nearest level and fold the rest into "…" (the tree drawer).
+    const line = p && view !== 'session' ? lineage(p) : []
+    const ancestors = (line.length ? `<span class="${line.length > 1 ? 'contents lg:hidden' : 'contents sm:hidden'}">${sep}<button data-act="side:1" class="${IB} px-0" aria-label="Built from ${esc(line.map(a => a.p.title).join(' › '))}">${ic('dots')}</button></span>` : '')
+      + line.map((a, i) => `<span class="${i < line.length - 1 ? 'hidden lg:contents' : 'hidden sm:contents'}">${sep}<button data-act="${a.v && a.p.variants.some(x => x.id === a.v) ? `pv:${esc(a.p.id)}:${esc(a.v)}` : `lobby:proto:${esc(a.p.id)}`}" class="inline-flex h-9 min-w-0 items-center gap-1.5 rounded-md px-2 text-zinc-500 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"><span class="truncate">${esc(a.p.title)}</span>${a.v ? `<span class="shrink-0 rounded bg-zinc-900/[.06] px-1 text-[11px] font-semibold tabular-nums dark:bg-white/10">${esc(a.v)}</span>` : ''}</button></span>`).join('')
+    bar.innerHTML = `<button data-act="side:1" class="${IB} shrink-0 ${st.side ? 'lg:hidden' : ''}" title="Show sidebar · ⌘\\" aria-label="Show sidebar">${ic('sidebar')}</button>
+      <nav class="flex min-w-0 items-center" aria-label="Breadcrumb">
         ${crumb('lobby:session', 'session', `<span class="relative grid size-5 shrink-0 place-items-center rounded bg-zinc-900 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-900">${initial}<span class="absolute -right-1 -top-1 flex rounded-full ring-2 ring-white dark:ring-zinc-950">${pulse('size-2', st.live && !st.stopped)}</span></span><span class="hidden truncate md:inline">${esc(session.name)}</span>`, view === 'session', sessionMenu, 'left-2 top-12 w-[22rem] max-w-[calc(100vw-1rem)] sm:left-0')}
+        ${ancestors}
         ${p ? sep + crumb('lobby:proto', 'proto', `<span class="truncate">${esc(p.title)}</span>`, view === 'proto', protoMenu, 'inset-x-2 top-12 sm:inset-x-auto sm:left-0 sm:w-96') : ''}
         ${v ? sep + crumb(`variant:${v.id}`, 'variant', `<span class="truncate"><b class="text-zinc-900 dark:text-white">${v.id}</b><span class="hidden font-normal text-zinc-500 sm:inline dark:text-zinc-400"> · ${esc(v.name)}</span></span>`, true, variantMenu, 'right-2 top-12 w-72 sm:left-0 sm:right-auto') : ''}
       </nav>
@@ -277,6 +331,16 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
         ${many ? `<button data-act="step:1" aria-label="Next variant" class="grid h-8 w-7 place-items-center rounded-md ${TAB_OFF}">${ic('right', 'size-3.5')}</button><button data-act="open:variant" title="All ${vs.length} variants" class="h-8 rounded-md px-2 text-xs tabular-nums ${st.open === 'variant' ? TAB_ON : TAB_OFF}">${at + 1}<span class="text-zinc-400">/${vs.length}</span></button>` : ''}
       </div>`
     }
+    const keepScroll = (host: HTMLElement, html: string) => {
+      const top = host.querySelector('[data-tree]')?.scrollTop ?? 0
+      host.innerHTML = html
+      const t = host.querySelector('[data-tree]')
+      if (t) t.scrollTop = top
+    }
+    side.className = st.side ? 'hidden w-72 shrink-0 flex-col border-r border-black/[.07] lg:flex dark:border-white/10' : 'hidden'
+    keepScroll(side, st.side ? tree(false) : '')
+    keepScroll(drawer, st.drawer ? `<div class="fixed inset-0 z-50 lg:hidden"><div data-act="drawer:0" class="absolute inset-0 bg-black/30"></div><div class="absolute inset-y-0 left-0 flex w-[19rem] max-w-[85%] flex-col bg-white shadow-2xl dark:bg-zinc-950">${tree(true)}</div></div>` : '')
+
     const tabRow = seg()
     tabs.className = tabRow ? 'flex shrink-0 justify-center border-b border-black/[.07] p-1.5 sm:hidden dark:border-white/10' : 'hidden'
     tabs.innerHTML = tabRow
@@ -322,6 +386,42 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     document.title = [v && `${v.id} · ${v.name}`, p?.title, session.name].filter(Boolean).join(' – ')
   }
 
+  // ---------- sidebar ----------
+  // Prototypes as a tree: each opens to its variants, and a prototype built from a variant
+  // sits under that variant's row (blue guide line), at any depth.
+  function tree(inDrawer: boolean) {
+    const p = cur(), view = st.place.view, vid = view === 'variant' ? st.place.variant : ''
+    const ROW = 'text-zinc-600 hover:bg-zinc-900/[.04] hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/[.06] dark:hover:text-white'
+    const nested = (list: Proto[]) => list.length ? `<div class="ml-[15px] border-l-2 border-sky-500/30 pl-1">${list.map(node).join('')}</div>` : ''
+    function node(q: Proto): string {
+      const open = st.tree.has(q.id), here = q.id === p?.id && view !== 'session'
+      const variants = q.variants.map(v => {
+        const on = here && vid === v.id, ks = kidsOf(q, v.id)
+        return `<button data-act="pv:${esc(q.id)}:${v.id}" aria-current="${on}" class="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left ${on ? `${ON} font-medium` : ROW}"><span class="w-4 shrink-0 text-center text-xs font-semibold ${on ? '' : 'text-zinc-400'}">${v.id}</span><span class="min-w-0 truncate">${esc(v.name)}</span>${editing(q.id, v.id) ? pulse('size-1.5') : ''}${ks.length ? `<span class="ml-auto" title="${ks.length} built from ${v.id}">${ic('branch', 'size-3.5 text-sky-500')}</span>` : ''}</button>${nested(ks)}`
+      }).join('')
+      return `<div><div class="flex h-9 items-center rounded-lg ${here && view === 'proto' ? ON : ROW}">
+        <button data-act="fold:${esc(q.id)}" aria-expanded="${open}" aria-label="${open ? 'Fold' : 'Open'} ${esc(q.title)}" class="grid h-9 w-7 shrink-0 place-items-center text-zinc-400">${ic(open ? 'chev' : 'right', 'size-3.5')}</button>
+        <button data-act="lobby:proto:${esc(q.id)}" aria-current="${here && view === 'proto'}" class="flex h-9 min-w-0 flex-1 items-center gap-2 pr-2 text-left"><span class="truncate ${here ? 'font-semibold text-zinc-900 dark:text-white' : ''}">${esc(q.title)}</span>${q.kind === 'phone' ? ic('phone', 'size-3.5 text-zinc-400') : ''}${!open && editingUnder(q) ? pulse('size-1.5') : ''}<span class="ml-auto text-xs tabular-nums text-zinc-400">${q.variants.length}</span></button></div>
+        ${open ? `<div class="ml-[13px] border-l border-black/[.08] pl-1.5 dark:border-white/10">${variants}${nested(looseKids(q))}</div>` : ''}</div>`
+    }
+    const initial = esc((session.name.trim()[0] || 'P').toUpperCase())
+    const gone = archived()
+    return `<div class="flex h-12 shrink-0 items-center gap-2 pl-3 pr-1.5">
+        <button data-act="lobby:session" class="flex min-w-0 items-center gap-2"><span class="grid size-5 shrink-0 place-items-center rounded bg-zinc-900 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-900">${initial}</span><span class="truncate font-semibold">${esc(session.name)}</span></button>
+        <button data-act="${inDrawer ? 'drawer:0' : 'side:0'}" class="${IB} ml-auto shrink-0" title="${inDrawer ? 'Close' : 'Hide sidebar · ⌘\\'}" aria-label="${inDrawer ? 'Close' : 'Hide sidebar'}">${ic(inDrawer ? 'x' : 'sidebar')}</button>
+      </div>
+      <nav data-tree class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" aria-label="Prototypes">
+        <button data-act="lobby:session" aria-current="${view === 'session'}" class="flex h-9 w-full items-center gap-2.5 rounded-lg px-2 ${view === 'session' ? ON : ROW}">${ic('home')}Overview</button>
+        <div class="px-2 pb-1 pt-3 text-[11px] font-medium text-zinc-400">Prototypes</div>
+        ${active().filter(isRoot).map(node).join('') || '<p class="px-2 py-1 text-xs text-zinc-400">None yet</p>'}
+        ${gone.length ? `<button data-act="archived" class="mt-2 flex h-9 w-full items-center gap-2 rounded-lg px-2 text-xs text-zinc-400 hover:bg-zinc-900/[.03] hover:text-zinc-600 dark:hover:bg-white/5 dark:hover:text-zinc-200">${ic(st.archived ? 'chev' : 'right', 'size-3')}Archived<span class="ml-auto tabular-nums">${gone.length}</span></button>${st.archived ? gone.map(q => `<button data-act="proto:${esc(q.id)}" class="flex h-8 w-full items-center gap-2 rounded-lg pl-7 pr-2 text-left text-zinc-400 hover:bg-zinc-900/[.03] dark:hover:bg-white/5"><span class="truncate line-through decoration-zinc-300">${esc(q.title)}</span><span class="ml-auto text-xs tabular-nums">${q.variants.length}</span></button>`).join('') : ''}` : ''}
+      </nav>
+      <div class="flex h-12 shrink-0 items-center gap-1 border-t border-black/[.07] pl-3 pr-1.5 dark:border-white/10">
+        <span class="flex min-w-0 items-center gap-2 truncate text-xs text-zinc-500">${pulse('size-1.5', st.live && !st.stopped)}${st.stopped ? 'Stopped' : !st.live ? 'Reconnecting…' : st.lastEdit ? `Live · edited <span data-ago="${st.lastEdit}">${ago(st.lastEdit)}</span>` : 'Live'}</span>
+        <button data-act="theme:${st.dark ? 'light' : 'dark'}" class="${IB} ml-auto shrink-0" aria-label="Switch to ${st.dark ? 'light' : 'dark'}">${ic(st.dark ? 'sun' : 'moon')}</button>
+      </div>`
+  }
+
   // ---------- actions ----------
   function act(name: string, arg: string, arg2: string) {
     const p = cur()
@@ -333,6 +433,10 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       case 'step': return step(Number(arg))
       case 'open': st.open = st.open === arg ? null : arg; st.copied = false; if (arg === 'session') refreshStatus(); return render()
       case 'archived': st.archived = !st.archived; return render()
+      case 'fold': st.tree.has(arg) ? st.tree.delete(arg) : st.tree.add(arg); return render()
+      // Wide windows dock the sidebar (remembered); narrower ones open it as a drawer.
+      case 'side': if (!wide()) { st.drawer = arg === '1'; return render() } st.side = arg === '1'; localStorage.setItem('proto-side', st.side ? '1' : '0'); return render()
+      case 'drawer': st.drawer = arg === '1'; return render()
       case 'stack': st.stack = arg === '1'; localStorage.setItem('proto-lobby', st.stack ? 'stack' : 'grid'); return show(true)
       case 'scale': st.scale = Number(arg); st.open = null; render(); return fit()
       case 'theme': return setTheme(arg === 'dark')
@@ -375,8 +479,10 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       const next = rows[e.key === 'ArrowDown' ? Math.min(rows.length - 1, i + 1) : i - 1]
       return next ? next.focus() : pop.querySelector<HTMLElement>('[data-filter]')?.focus()
     }
+    if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); return act('side', (wide() ? st.side : st.drawer) ? '0' : '1', '') }
     if (e.key === 'Escape') {
       if (st.open) { st.open = null; return render() }
+      if (st.drawer) { st.drawer = false; return render() }
       if (st.focus) return act('unfocus', '', '')
     }
     if (e.metaKey || e.ctrlKey || e.altKey || t.closest?.(INTERACTIVE)) return

@@ -11,8 +11,8 @@ the start, and watches every prototype appear and fill in as you write the files
 updates through hot module replacement, never a reload. Everything the user asks for in the
 session lives in that one app: **session › prototype › variant**.
 
-The app already has its navigation (breadcrumbs that open lobbies, jump menus, variant tabs,
-edge arrows, a focus mode with a dock, light and dark, phone frames, "editing" dots). You
+The app already has its navigation (a sidebar tree, breadcrumbs that open lobbies, jump menus,
+variant tabs, edge arrows, a focus mode with a dock, light and dark, phone frames, "editing" dots). You
 only write variant files.
 
 `proto` below means `${CLAUDE_SKILL_DIR}/scripts/proto.mjs` (executable; call it by
@@ -62,8 +62,14 @@ interaction model. Two directions that differ only in color or spacing are one d
 
 ```
 proto add <slug> --title "Hero sections" --ask "<the user's request, in their words>" \
-  --variants "A:Split media,B:Big price,C:Map first" [--kind phone]
+  --variants "A:Split media,B:Big price,C:Map first" [--kind phone] [--from <slug>/<letter>]
 ```
+
+`--from` is for a prototype built from part of an existing variant ("take the hero from
+home B further", then "now just that hero's CTA"): `proto add hero --from home/B …`, then
+`proto add cta --from hero/C …`. The page nests it under that variant in the sidebar, its
+breadcrumbs show the chain it came from, and the parent's overview links to it. `--from home`
+(no letter) nests it under the prototype as a whole.
 
 This writes `src/protos/<slug>/meta.ts` and a "Building…" placeholder per variant, prints a
 direct link to the prototype (`…/#/<slug>`), and the page jumps there by itself. Then replace each placeholder file whole, one at a time,
@@ -146,6 +152,7 @@ Each module is roughly 4 to 30 KB and goes through your tool calls, so snap only
 | More takes on an existing prototype ("two more heroes") | `proto add <same slug> --variants "D:…,E:…"` |
 | Something new ("now the pricing page") | `proto add <new slug> …` |
 | Variations of one variant ("B but with a map") | new letters in the same prototype, named after B |
+| A part of one variant, explored on its own ("B's hero, but better") | `proto add <new slug> --from <slug>/B …` |
 | To drop a direction or prototype | `proto archive <slug>` (still reachable under Archived) |
 | The prototypes in a doc to share | `proto snap`, then a Claude Doc (section above) |
 | Prototypes for a different project | `proto up --project <dir>`: a separate app for that project |

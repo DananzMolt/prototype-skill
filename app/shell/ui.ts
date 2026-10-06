@@ -14,6 +14,12 @@ const PATHS: Record<string, string> = {
   clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2',
   grow: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
   shrink: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
+  sidebar: 'M4 5h16v14H4zM9 5v14',
+  home: 'M4 11l8-7 8 7v9h-5v-6H9v6H4z',
+  branch: 'M6 3v8a4 4 0 0 0 4 4h8M14 11l4 4-4 4',
+  from: 'M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
+  dots: 'M5 12h.01M12 12h.01M19 12h.01',
+  x: 'M6 6l12 12M18 6 6 18',
 }
 
 export const ic = (name: string, cls = 'size-4') =>
