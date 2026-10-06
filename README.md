@@ -1,8 +1,13 @@
-# prototype
+# Prototype
 
-A Claude Code skill that turns "show me a few versions of this" into one live app per session. You get a link at the start and watch every prototype appear and fill in as Claude writes it: hot module replacement, no reloads. Everything you ask for in the session lives in that one app, as session › prototype › variant, with breadcrumbs that open lobbies, jump menus, variant tabs, edge arrows and a focus mode.
+A Claude Code plugin that turns "show me a few versions of this" into real, clickable variants you watch being built, live, in one app per session.
 
-The app follows your project's stack (React or Vue; anything else gets React) and can use your design tokens and import your components, so the winning variant is close to drop-in.
+![Three hero variants appearing one after another as Claude writes them](docs/images/live.gif)
+
+- **One link per session.** Claude starts a small app before it designs anything and sends you the link. It opens on your phone too.
+- **Live, no reloads.** Every variant shows up as a placeholder and fills in through hot module replacement the moment its file is written.
+- **Built from your product.** The app follows your stack (React or Vue), uses your design tokens and can import your components, so the winner is close to drop-in.
+- **A pick, not a pile.** Claude screenshots every variant, fixes what it sees over two rounds, then recommends one and says why.
 
 ## Install
 
@@ -13,27 +18,123 @@ In Claude Code:
 /plugin install prototype@prototype-skill
 ```
 
-To get new versions automatically, open `/plugin`, go to **Marketplaces**, pick `prototype-skill` and choose **Enable auto-update**. Otherwise run `/plugin marketplace update prototype-skill` when you want the latest.
+To get updates automatically, open `/plugin`, go to **Marketplaces**, pick `prototype-skill` and choose **Enable auto-update**. Otherwise run `/plugin marketplace update prototype-skill` when you want the latest.
 
-Needs Node 22+, pnpm or npm, and Google Chrome (for screenshots). For the link on your phone, Tailscale too (macOS app or CLI).
+**Needs** Node 22+, pnpm or npm, and Google Chrome (for screenshots). For the link on your phone, [Tailscale](https://tailscale.com) too.
 
-Without the plugin system, clone it as a personal skill instead: `git clone https://github.com/DananzMolt/prototype-skill ~/.claude/skills/prototype` (update with `git pull`).
+<details>
+<summary>Without the plugin system</summary>
+
+Clone it as a personal skill and update it with `git pull`:
+
+```sh
+git clone https://github.com/DananzMolt/prototype-skill ~/.claude/skills/prototype
+```
+</details>
 
 ## Use
 
-`/prototype` works as long as nothing else claims the name; `/prototype:prototype` always does. Claude also picks it up on its own when you ask for versions of a UI.
-
 ```
-/prototype <feature>
-/prototype 3 <feature>
-/prototype <feature>, research online, then implement the best one
+/prototype the checkout page
+/prototype 3 empty states for the inbox
+/prototype a pricing section, then build the best one
 ```
 
-Follow-ups in the same session ("now five hero variations", "add two more") land in the same app, under the same link.
+Or just ask: "show me a few versions of the settings drawer". `/prototype` works when nothing else uses the name; `/prototype:prototype` always does.
+
+Keep going in the same session and everything lands in the same app, under the same link:
+
+| You say | You get |
+|---|---|
+| "two more heroes" | D and E next to A, B, C |
+| "now the pricing page" | a new prototype in the same app |
+| "B, but with a map" | new variants built from B |
+| "try it on the phone" | the variants in phone frames |
+| "build the winner" | the real feature in your codebase, with screenshots |
+
+## What you get
+
+### Every variant is a real page
+
+Breadcrumbs go session › prototype › variant. Each name opens an overview, each chevron jumps anywhere, and the tabs or the arrow keys step through variants.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/variant-dark.png">
+  <img alt="A variant with breadcrumbs and variant tabs" src="docs/images/variant-light.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/menu-dark.png">
+  <img alt="The variant jump menu" src="docs/images/menu-light.png">
+</picture>
+
+### Compare them side by side, or at full size
+
+The prototype page shows every variant as a live thumbnail, or one after another at full size so you can click through each.
+
+<p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/grid-dark.png">
+  <img alt="Variants in a grid" src="docs/images/grid-light.png" width="49%">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/fullsize-dark.png">
+  <img alt="Phone variants at full size" src="docs/images/fullsize-light.png" width="49%">
+</picture>
+</p>
+
+### Focus mode
+
+Press `F` and the chrome disappears. A small dock stays at the bottom and grows as your pointer gets close; edge arrows appear near the sides.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/focus-dark.png">
+  <img alt="Focus mode with the dock" src="docs/images/focus-light.png">
+</picture>
+
+### On your phone
+
+The link works on any device on your tailnet, and phone prototypes sit in a real 393×852 frame.
+
+<p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/phone-dark.png">
+  <img alt="A phone prototype on a phone" src="docs/images/phone-light.png" width="32%">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/session-dark.png">
+  <img alt="The session overview with every prototype" src="docs/images/session-light.png" width="66%">
+</picture>
+</p>
+
+## How Claude uses it
+
+1. Starts the session app and sends you the link.
+2. Reads your tokens and nearest existing screens, and writes down what the feature must do.
+3. Picks genuinely different directions (where it lives, how it's triggered, how much it shows), five unless you say otherwise.
+4. Writes each variant into the app; you watch them land.
+5. Screenshots every variant on desktop and phone, fixes what breaks, two rounds.
+6. Recommends one, says why, and what to take from the others.
 
 ## Where things go
 
-Each session's app lives in `<project>/.prototypes/<session>/`, git-ignored, with its own dependencies. A server stops itself after 6 hours with no edits and no open page; sessions untouched for 14 days are deleted unless you press Keep. `scripts/proto.mjs` manages all of it (`up`, `add`, `shoot`, `stop`, `rm`, `keep`, `ls`, `gc`).
+Each session's app lives in `<project>/.prototypes/<session>/`, git-ignored, with its own dependencies. Your project's files are never touched.
+
+| When | What happens |
+|---|---|
+| No edits and no open page for 6 hours | the server stops; asking again restarts it on the same link |
+| A session untouched for 14 days | it's deleted, unless you pressed **Keep** in the session menu |
+| You say you're done | Claude stops it; the files stay |
+
+## What's inside
+
+| Path | |
+|---|---|
+| `SKILL.md` | What Claude does, step by step |
+| `scripts/proto.mjs` | Session manager: `up`, `add`, `shoot`, `archive`, `stop`, `rm`, `keep`, `ls`, `gc` |
+| `scripts/shoot.mjs` | Desktop and phone screenshots through headless Chrome |
+| `app/` | The template each session app is copied from (Vite, Tailwind, the shell, React and Vue adapters) |
+| `.claude-plugin/` | Plugin and marketplace manifests |
 
 ## License
 
