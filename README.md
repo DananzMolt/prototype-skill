@@ -6,13 +6,22 @@ The app follows your project's stack (React or Vue; anything else gets React) an
 
 ## Install
 
-```sh
-git clone https://github.com/DananzMolt/prototype-skill ~/.claude/skills/prototype
+In Claude Code:
+
 ```
+/plugin marketplace add DananzMolt/prototype-skill
+/plugin install prototype@prototype-skill
+```
+
+To get new versions automatically, open `/plugin`, go to **Marketplaces**, pick `prototype-skill` and choose **Enable auto-update**. Otherwise run `/plugin marketplace update prototype-skill` when you want the latest.
 
 Needs Node 22+, pnpm or npm, and Google Chrome (for screenshots). For the link on your phone, Tailscale too (macOS app or CLI).
 
+Without the plugin system, clone it as a personal skill instead: `git clone https://github.com/DananzMolt/prototype-skill ~/.claude/skills/prototype` (update with `git pull`).
+
 ## Use
+
+`/prototype` works as long as nothing else claims the name; `/prototype:prototype` always does. Claude also picks it up on its own when you ask for versions of a UI.
 
 ```
 /prototype <feature>
