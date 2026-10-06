@@ -1,0 +1,15 @@
+{
+  "name": "prototype-skill",
+  "description": "The prototype plugin for Claude Code",
+  "owner": {
+    "name": "Tomer Danan",
+    "url": "https://github.com/DananzMolt"
+  },
+  "plugins": [
+    {
+      "name": "prototype",
+      "source": "./",
+      "description": "Several live, clickable versions of any UI, in one hot-reloading app per session"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "prototype",
+  "displayName": "Prototype",
+  "description": "Several live, clickable versions of any UI, built into one hot-reloading app per Claude Code session with a link you can open on your phone.",
+  "author": {
+    "name": "Tomer Danan",
+    "url": "https://github.com/DananzMolt"
+  },
+  "homepage": "https://github.com/DananzMolt/prototype-skill",
+  "repository": "https://github.com/DananzMolt/prototype-skill",
+  "license": "MIT",
+  "keywords": ["prototype", "ui", "design", "variants", "vite", "hmr"]
+}

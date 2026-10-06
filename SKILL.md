@@ -1,6 +1,7 @@
 ---
 name: prototype
 description: Use when the user asks to prototype a UI, wants several versions or variations of a screen, component, section or interaction, or says "/prototype", "/prototype 3 <feature>", "show me options for…", "give me a few versions of…". Also use for follow-up requests in the same session ("now 5 variations of the hero", "add two more", "try it on the phone"). NOT for a single straightforward UI change, logic with no visible surface, or comparing libraries or APIs.
+allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/proto.mjs *)
 ---
 
 # Prototype
@@ -14,7 +15,7 @@ The app already has its navigation (breadcrumbs that open lobbies, jump menus, v
 edge arrows, a focus mode with a dock, light and dark, phone frames, "editing" dots). You
 only write variant files.
 
-`proto` below means `~/.claude/skills/prototype/scripts/proto.mjs` (executable; call it by
+`proto` below means `${CLAUDE_SKILL_DIR}/scripts/proto.mjs` (executable; call it by
 that path, not through a shell variable). It finds the session from `$CLAUDE_CODE_SESSION_ID`
 and the project from the git root of the current folder. A subagent building into the main
 session's app passes `--session <the main session id>` on every call.
@@ -150,4 +151,5 @@ menu in the page.
   is the app's `.proto/dev.log`.
 - **A variant shows a red error box:** that variant threw. Fix the file; it re-renders.
 - **Don't edit** the app's `shell/`, `src/main.ts`, `src/registry.ts` or `src/mount.*`. If the
-  shell itself misbehaves, fix it in `~/.claude/skills/prototype/app/` and say so.
+  shell itself misbehaves, say so; the template is `${CLAUDE_SKILL_DIR}/app/` (replaced on
+  every plugin update, so a fix belongs upstream).
