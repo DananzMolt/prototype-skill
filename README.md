@@ -59,13 +59,8 @@ Keep going in the same session and everything lands in the same app, under the s
 Breadcrumbs go session › prototype › variant. Each name opens an overview, each chevron jumps anywhere, and the tabs or the arrow keys step through variants.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/variant-dark.png">
-  <img alt="A variant with breadcrumbs and variant tabs" src="docs/images/variant-light.png">
-</picture>
-
-<picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/menu-dark.png">
-  <img alt="The variant jump menu" src="docs/images/menu-light.png">
+  <img alt="A variant with its breadcrumbs, tabs and jump menu" src="docs/images/menu-light.png">
 </picture>
 
 ### Compare them side by side, or at full size
