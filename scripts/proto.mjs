@@ -95,9 +95,13 @@ function detectStack(project) {
 // ---------- processes, ports, tailnet ----------
 const alive = pid => { if (!pid) return false; try { process.kill(pid, 0); return true } catch { return false } }
 // The dev server and what it started (esbuild): its process group, or its tree on Windows.
-function kill(pid) {
-  if (WIN) return run('taskkill', ['/pid', String(pid), '/T', '/F'])
-  try { process.kill(-pid, 'SIGTERM') } catch { try { process.kill(pid, 'SIGTERM') } catch { /* gone */ } }
+// Waits until it has exited, so a `proto up` right after gets the same port back.
+async function kill(pid) {
+  if (WIN) { run('taskkill', ['/pid', String(pid), '/T', '/F']); return }
+  const signal = sig => { try { process.kill(-pid, sig) } catch { try { process.kill(pid, sig) } catch { /* gone */ } } }
+  signal('SIGTERM')
+  for (let i = 0; i < 50 && alive(pid); i++) await sleep(100)
+  if (alive(pid)) signal('SIGKILL')
 }
 async function answers(url, ms = 2500) {
   try { const r = await fetch(url, { signal: AbortSignal.timeout(ms) }); return r.ok } catch { return false }
@@ -281,7 +285,7 @@ function archive() {
 async function stop(dir = sessionDir(), reason = 'stopped') {
   const s = readSession(dir)
   if (!s) return
-  if (alive(s.pid)) kill(s.pid)
+  if (alive(s.pid)) await kill(s.pid)
   if (s.tailnetPort && has('tailscale')) {
     const net = tailnet()
     if (net?.rules[s.tailnetPort] === s.port) run('tailscale', ['serve', `--https=${s.tailnetPort}`, 'off'])

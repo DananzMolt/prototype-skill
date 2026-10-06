@@ -61,7 +61,9 @@ if (!existsSync(join(app, '.proto', 'snaps', 'hero-A.jsx'))) fail('proto snap wr
 proto(['stop'])
 for (let i = 0; i < 40 && await answers(`${local}__proto/status`); i++) await new Promise(r => setTimeout(r, 250))
 if (await answers(`${local}__proto/status`)) fail('the server still answers after proto stop')
-try { process.kill(pid, 0); fail(`the dev server (pid ${pid}) is still running after proto stop`) } catch { /* gone, as it should be */ }
+let gone = false
+try { process.kill(pid, 0) } catch { gone = true }
+if (!gone) fail(`the dev server (pid ${pid}) is still running after proto stop`)
 
 proto(['rm'])
 if (existsSync(app)) fail('proto rm left the session folder')
