@@ -394,6 +394,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       }
     })
     document.title = [v && `${v.id} · ${v.name}`, p?.title, session.name].filter(Boolean).join(' – ')
+    paintIcon()
   }
 
   // ---------- sidebar ----------
@@ -430,6 +431,22 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
         <span class="flex min-w-0 items-center gap-2 truncate text-xs text-zinc-500">${pulse('size-1.5', st.live && !st.stopped)}${st.stopped ? 'Stopped' : !st.live ? 'Reconnecting…' : st.lastEdit ? `Live · edited <span data-ago="${st.lastEdit}">${ago(st.lastEdit)}</span>` : 'Live'}</span>
         <button data-act="theme:${st.dark ? 'light' : 'dark'}" class="${IB} ml-auto shrink-0" aria-label="Switch to ${st.dark ? 'light' : 'dark'}">${ic(st.dark ? 'sun' : 'moon')}</button>
       </div>`
+  }
+
+  // ---------- tab icon ----------
+  // The session's initial, like its badge, with the live dot (gray once the server is gone).
+  // It inverts for dark browser chrome.
+  let iconKey = ''
+  function paintIcon() {
+    const initial = esc((session.name.trim()[0] || 'P').toUpperCase())
+    const live = st.live && !st.stopped
+    if (iconKey === initial + live) return
+    iconKey = initial + live
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><style>.b{fill:#18181b}.t{fill:#fff}.r{stroke:#fff}@media (prefers-color-scheme:dark){.b{fill:#fff}.t{fill:#18181b}.r{stroke:#18181b}}</style><rect class="b" x="1" y="3" width="28" height="28" rx="8"/><text class="t" x="15" y="23.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif" font-size="17" font-weight="700" text-anchor="middle">${initial}</text><circle class="r" cx="25.5" cy="6.5" r="5" stroke-width="2" fill="${live ? '#10b981' : '#a1a1aa'}"/></svg>`
+    let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+    if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.append(link) }
+    link.type = 'image/svg+xml'
+    link.href = `data:image/svg+xml,${encodeURIComponent(svg)}`
   }
 
   // ---------- actions ----------
