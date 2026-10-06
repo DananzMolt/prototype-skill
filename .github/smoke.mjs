@@ -46,6 +46,10 @@ proto(['add', 'cta', '--from', 'home/Z', '--variants', 'A:x'], { ok: false })
 const meta = readFileSync(join(app, 'src', 'protos', 'hero', 'meta.ts'), 'utf8')
 if (!meta.includes('"from": "home/B"')) fail('hero/meta.ts has no "from": "home/B"')
 
+proto(['pick', 'home', 'B'])
+proto(['pick', 'home', 'Z'], { ok: false })
+if (!readFileSync(join(app, 'src', 'protos', 'home', 'meta.ts'), 'utf8').includes('"picked": "B"')) fail('home/meta.ts has no "picked": "B"')
+
 proto(['shoot', '', 'hero', 'hero/A'])
 const shots = join(app, '.proto', 'shots')
 const made = pngs(shots)
