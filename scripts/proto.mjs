@@ -4,6 +4,7 @@
 //   proto up [--name "Session name"] [--stack react|vue]   create or restart, print the URL
 //   proto add <slug> --title "…" --variants "A:Name,B:Name" [--ask "…"] [--kind phone]
 //   proto shoot [route…] [--theme dark] [--focus] [--click <css>]  screenshots, e.g. hero/A hero
+//   proto snap <slug>[/<letter>]… [--width 672]   static HTML snapshots for a Claude Doc
 //   proto archive <slug> [--off]    proto keep [--off]      proto url    proto stack
 //   proto stop    proto rm    proto ls    proto gc
 //
@@ -326,8 +327,33 @@ async function shoot() {
   process.exit(r.status ?? 1)
 }
 
+async function snap() {
+  const dir = sessionDir()
+  const s = need(dir)
+  if (!await running(s)) die('the server is stopped. Run: proto up')
+  if (!args.length) die('usage: proto snap <slug>[/<letter>]…')
+  const readMeta = slug => {
+    const f = join(dir, 'src', 'protos', slug, 'meta.ts')
+    if (!existsSync(f)) die(`no prototype "${slug}"`)
+    return JSON.parse(readFileSync(f, 'utf8').replace(/^[\s\S]*?export default\s*/, '').replace(/;?\s*$/, ''))
+  }
+  const spec = args.flatMap(arg => {
+    const [slug, only] = arg.split('/')
+    const meta = readMeta(slug)
+    const ids = Object.keys(meta.variants || {}).filter(id => !only || id === only)
+    if (!ids.length) die(`no variant "${only}" in ${slug}`)
+    return ids.map(id => ({ route: `${slug}/${id}`, proto: slug, id, name: meta.variants[id], title: meta.title || slug, kind: meta.kind || 'web' }))
+  })
+  const out = resolve(flags.out || join(dir, '.proto', 'snaps'))
+  mkdirSync(out, { recursive: true })
+  const specFile = join(out, 'spec.json')
+  writeFileSync(specFile, JSON.stringify(spec))
+  const r = run(process.execPath, [join(SKILL, 'scripts', 'snap.mjs'), s.localUrl, out, String(flags.width || 672), specFile], { stdio: 'inherit' })
+  process.exit(r.status ?? 1)
+}
+
 const commands = {
-  up, add, archive, shoot, gc: () => gc(false), ls,
+  up, add, archive, shoot, snap, gc: () => gc(false), ls,
   stop: async () => { await stop(); console.log('stopped (files kept; proto up restarts it on the same link)') },
   rm: () => rm(),
   keep: () => { const dir = sessionDir(); need(dir); patchSession(dir, { keep: !flags.off }); console.log(flags.off ? 'no longer kept' : 'kept until deleted by hand') },
@@ -335,7 +361,7 @@ const commands = {
   stack: () => { const d = detectStack(projectRoot()); console.log(`${d.stack} (${d.why})`) },
 }
 if (!commands[cmd]) {
-  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 12).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
+  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 13).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
   process.exit(cmd ? 1 : 0)
 }
 await commands[cmd]()

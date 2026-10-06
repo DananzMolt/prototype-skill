@@ -51,6 +51,7 @@ Keep going in the same session and everything lands in the same app, under the s
 | "B, but with a map" | new variants built from B |
 | "try it on the phone" | the variants in phone frames |
 | "build the winner" | the real feature in your codebase, with screenshots |
+| "put these in a doc I can share" | a Claude Doc with a static snapshot of each variant |
 
 ## What you get
 
@@ -126,8 +127,9 @@ Each session's app lives in `<project>/.prototypes/<session>/`, git-ignored, wit
 | Path | |
 |---|---|
 | `SKILL.md` | What Claude does, step by step |
-| `scripts/proto.mjs` | Session manager: `up`, `add`, `shoot`, `archive`, `stop`, `rm`, `keep`, `ls`, `gc` |
+| `scripts/proto.mjs` | Session manager: `up`, `add`, `shoot`, `snap`, `archive`, `stop`, `rm`, `keep`, `ls`, `gc` |
 | `scripts/shoot.mjs` | Desktop and phone screenshots through headless Chrome |
+| `scripts/snap.mjs` | Static HTML snapshots of variants, for sharing in a Claude Doc |
 | `app/` | The template each session app is copied from (Vite, Tailwind, the shell, React and Vue adapters) |
 | `.claude-plugin/` | Plugin and marketplace manifests |
 
