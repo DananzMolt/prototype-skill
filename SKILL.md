@@ -1,136 +1,153 @@
 ---
 name: prototype
-description: Explore a UI feature by building N different versions of it (default 5) side by side in one HTML file, previewing them, improving them over a few rounds, then picking the best one and saying why. Always replies with a tailnet link to the page and screenshots of every version. Use for "/prototype", "/prototype 3 <feature>", "prototype <feature>", "show me options for <feature>", "give me a few versions of this screen/component/interaction". Ends with a recommendation; only builds the winner into the real codebase when the request says so ("then implement the best one"). NOT for a single straightforward UI change, for logic with no visible surface, or for comparing libraries or APIs.
+description: Use when the user asks to prototype a UI, wants several versions or variations of a screen, component, section or interaction, or says "/prototype", "/prototype 3 <feature>", "show me options for…", "give me a few versions of…". Also use for follow-up requests in the same session ("now 5 variations of the hero", "add two more", "try it on the phone"). NOT for a single straightforward UI change, logic with no visible surface, or comparing libraries or APIs.
 ---
 
 # Prototype
 
-Turn one feature idea into several real, clickable versions, look at them the way a designer
-would, make them better, and pick one. The value is in versions that are **actually different**:
-five shades of the same layout is one option, not five.
+Each Claude Code session gets **one live prototype app**. The user gets its link once, at
+the start, and watches every prototype appear and fill in as you write the files: the page
+updates through hot module replacement, never a reload. Everything the user asks for in the
+session lives in that one app: **session › prototype › variant**.
 
-## Inputs
+The app already has its navigation (breadcrumbs that open lobbies, jump menus, variant tabs,
+edge arrows, a focus mode with a dock, light and dark, phone frames, "editing" dots). You
+only write variant files.
 
-Read from the request:
+`proto` below means `~/.claude/skills/prototype/scripts/proto.mjs` (executable; call it by
+that path, not through a shell variable). It finds the session from `$CLAUDE_CODE_SESSION_ID`
+and the project from the git root of the current folder. A subagent building into the main
+session's app passes `--session <the main session id>` on every call.
 
-- **N**: number of versions. Default 5. Accept "/prototype 3 ..." or "three options".
-- **Feature**: what is being designed. If it is missing, ask one short question.
-- **Extras** the user may have added in the same prompt, and should be followed:
-  - "research online" / "look at how others do it" → search for real examples first
-    (Mobbin via the `mobbin-search` skill when it is available, otherwise the web).
-  - "look at Slack / Docs / the issue" → read those sources for constraints before designing.
-  - "implement the best one", "verify", "open a PR" → continue past the pick (step 6).
+## 1. Start the session app, then send the link
 
-## 1. Ground it in the real product
-
-Before drawing anything, read enough of the project to make the versions look like they belong:
-
-- The design tokens: colors, type scale, radii, spacing, dark mode (CSS variables, Tailwind
-  config, theme file).
-- The closest existing screen or component to the feature, and the component library in use.
-- Any constraints in the request or the linked issue.
-
-Write down, in two or three lines, what the feature must do. Every version must do all of it.
-
-## 2. Pick N genuinely different directions
-
-Name each direction in a few words before building it. Vary something structural between them,
-for example:
-
-- Where it lives (inline, popover, side panel, full screen, command palette)
-- How it is triggered (always visible, on hover, on a key, on demand)
-- How much it shows (minimal vs. rich, progressive disclosure vs. all at once)
-- Interaction model (click, drag, type-ahead, direct manipulation)
-
-If two directions differ only in color or spacing, replace one.
-
-## 3. Build them in one HTML file
-
-Start from `template.html` in this skill's folder. Copy it to
-`<project root>/.prototypes/<feature-slug>.html`, and add `.prototypes/` to `.git/info/exclude`
-so it never gets committed. Outside a git repo, use `./.prototypes/` in the current directory.
-
-The template already has the page frame. Keep it working:
-
-- **Switcher.** One `<section class="version" data-version="A" data-name="...">` per version.
-  Tabs are built from the sections, plus an "All" tab. The URL hash selects a version (`#B`,
-  `#all`), which the screenshot script relies on. `?theme=dark` and `?scale=75` set the
-  initial theme and phone scale.
-- **Phone screens.** When a version is a mobile app screen, wrap each screen in a `.phone`
-  frame (393×852, as in the template). The 100% / 75% / 50% scale control then appears for
-  that version. Until the user picks a scale, it uses the largest one that fits the screen,
-  so on a phone a 393px frame shows at 75% instead of overflowing. Several screens of one
-  flow go side by side in the `.phone-row` and wrap on narrow screens.
-- **Fully responsive.** The whole page must work from 360px wide up, with no sideways
-  scrolling. The header wraps and the tabs scroll sideways on a phone. Web and desktop
-  versions must reflow too (stack columns, full-width controls), touch targets are at
-  least 36px (44px for primary actions), nothing depends on hover alone, and safe-area
-  insets are respected.
-
-Inside each version:
-
-- Use the project's real tokens copied into `tailwind.config`. Style with Tailwind through the
-  Play CDN unless the project clearly uses something else.
-- Make it **interactive**: real hover, focus, open/close, typing, empty and loading states
-  where they matter. Use realistic content, never lorem ipsum.
-- No build step. Opening the file in a browser must be enough.
-
-## 4. Publish, look at it, then iterate
-
-Publish the file on the tailnet right away:
+Before reading the codebase or designing anything:
 
 ```
-~/.claude/skills/prototype/scripts/publish.sh <project>/.prototypes/<slug>.html
+proto up --name "<short session title, e.g. Refuel redesign>"
 ```
 
-It prints a URL like `https://<machine>.<tailnet>.ts.net:9440/<project>/<slug>.html`, which
-opens on any device on the tailnet, including the user's phone. The script starts a small
-local server on port 8940 if one isn't running, adds a `tailscale serve` rule on port 9440
-if it's missing, and fails loudly if the URL doesn't answer. Ports can be changed with
-`PROTOTYPE_LOCAL_PORT` and `PROTOTYPE_TAILNET_PORT`. The file is served live, so later edits
-show on reload with no re-publish.
+It creates the app on the first call in a session, restarts it if it stopped, and prints
+`url …`. Send that URL to the user right away in one short message ("Live link: … it fills
+in as I build"). Then continue. On later requests in the same session run `proto up` again
+(same app, same link) and don't resend the link unless the user lost it.
 
-Take screenshots of every version at desktop (1440×900) and phone (390×844) size:
+What `proto up` does: the app lives in `<project>/.prototypes/<session>/` (git-ignored, the
+project's own files are untouched), its stack follows the project (React for React, Next or
+Expo projects, Vue for Vue or Nuxt, React for anything else), it runs a Vite dev server and
+publishes it on the tailnet with `tailscale serve`, so the link opens on the user's phone too.
+
+## 2. Ground it in the real product
+
+- **Tokens.** Put the project's look in the app's `src/theme.css`: an `@import` of the
+  project's token CSS (relative path, e.g. `@import "../../../src/styles/tokens.css";`) or
+  its values in a Tailwind `@theme {}` block. Variants style with Tailwind.
+- **Components.** Variants may import the project's presentational components through
+  `@project/…` (e.g. `import { Button } from '@project/src/components/Button'`). When you do,
+  add `@source "../../../src/components";` (the folder they come from) to `src/theme.css` so
+  their classes are generated.
+- **No tokens or components** (a new or non-web project): choose a restrained palette and type
+  that fit the product, put them in a `@theme {}` block in `src/theme.css`, and tell the user
+  they are invented.
+- Write down in two or three lines what the feature must do. Every variant does all of it.
+
+## 3. Pick genuinely different directions
+
+N is 5 unless the user said otherwise ("/prototype 3 …"). Name each direction in a few words.
+Vary something structural: where it lives, how it is triggered, how much it shows, the
+interaction model. Two directions that differ only in color or spacing are one direction.
+
+## 4. Add the prototype, then build each variant
 
 ```
-node ~/.claude/skills/prototype/scripts/shoot.mjs http://127.0.0.1:8940/<project>/<slug>.html \
-  <project>/.prototypes/<slug>-shots A B C D E
+proto add <slug> --title "Hero sections" --ask "<the user's request, in their words>" \
+  --variants "A:Split media,B:Big price,C:Map first" [--kind phone]
 ```
 
-Add `--theme=dark` for dark-mode shots, or `--scale=50` to check phone frames at another
-scale. Shots are named `<version>-<desktop|mobile>[-dark][-50pct].png`.
+This writes `src/protos/<slug>/meta.ts` and a "Building…" placeholder per variant, prints a
+direct link to the prototype (`…/#/<slug>`), and the page jumps there by itself. Then replace each placeholder file whole, one at a time,
+so the user sees them land:
 
-Read every screenshot and actually look at it. For each version, note what breaks:
-alignment, hierarchy, clipped text, overflow on the phone shot, weak affordance, too many
-steps. Fix those, and push each version further in its own direction rather than letting
-them converge. Do **2 rounds** by default (more if the user asked). Re-shoot after the last
-round so the screenshots match the final file.
+- One file per variant, named by its letter: `A.tsx` (or `A.vue` in a Vue app). Names live in
+  `meta.ts`. Never rename the files; letters run A … Z, then AA.
+- Default export is the component. Its root fills the stage: `h-full` for anything that is one
+  screen (app screens, drawers, sheets, overlays, a bar pinned to the bottom), `min-h-full`
+  for a page that scrolls. `--kind phone` variants go in a 393×852 phone frame.
+- `position: fixed` inside a variant is pinned to the stage (or the phone frame), not the
+  window, so drawers and sheets can use it.
+- Make it real: realistic content (never lorem ipsum), working hover, focus, open and close,
+  typing, empty and loading states where they matter. Local state is fine.
+- Responsive from 360px up, touch targets 36px (44px for primary actions), nothing hover-only.
+- The shell's Light/Dark switch sets `.dark` on `<html>`. When the project has a dark mode,
+  give the variants `dark:` classes; when it doesn't, leave them light (the shell around them
+  still turns dark, which is expected).
+- Small helpers can go in the same folder under lowercase names (`parts.tsx`).
 
-## 5. Pick one and say why
+## 5. Look at it, then iterate
 
-Choose the best version yourself instead of handing the choice back. The response must
-always include:
+```
+proto shoot <slug> <slug>/A <slug>/B …          # lobby plus each variant, desktop and phone
+proto shoot <slug>/A --theme=dark               # dark mode
+proto shoot <slug>/B --click "[data-shoot=add]" # a state reached by clicking (repeatable)
+```
 
-1. **The tailnet URL** from `publish.sh`, as a link at the top.
-2. **Screenshots** of the final versions, embedded as images with absolute paths
-   (`![A · Inline chip](/abs/path/A-desktop.png)`). Show each version's desktop shot, plus its
-   phone shot wherever the version is a phone screen or changes noticeably on mobile.
-3. One line per version: its direction and its main weakness.
-4. **The pick**, and why it wins for this product and its users, in two to four sentences.
-   Name what you would take from the runners-up, if anything.
+It prints absolute PNG paths (in the app's `.proto/shots/`). Phone shots are the whole page
+at 390×844, shell bars included. For states behind an interaction, put `data-shoot="…"` on the
+elements and pass one `--click` per step. Read every screenshot. For each
+variant, note what breaks: alignment, hierarchy, clipped text, overflow on the phone shot,
+weak affordance, too many steps. Fix it and push each variant further in its own direction
+instead of letting them converge. Do 2 rounds unless the user asked for more, and shoot again
+after the last round.
 
-If publishing or screenshots failed, say so plainly with the error instead of leaving
-them out. Design is a judgment call, so state the pick as a recommendation the user can
-overrule.
+## 6. Pick one and say why
 
-## 6. Only if asked: build it
+Choose the best variant yourself. The reply always includes:
 
-When the request asked to implement the winner:
+1. The live link, at the top.
+2. Screenshots of the final variants as images with absolute paths
+   (`![A · Split media](/abs/path/hero-A-desktop.png)`), plus the phone shot wherever a variant
+   is a phone screen or changes noticeably on mobile.
+3. One line per variant: its direction and its main weakness.
+4. The pick and why it wins for this product and its users, in two to four sentences, and
+   what you would take from the runners-up.
 
-- Build it in the real codebase using the project's own components and patterns, not by pasting
-  the prototype markup.
-- Match the existing styles exactly; check it in the running app, not just the HTML.
-- If asked to verify or open a PR, attach a screenshot or short recording of the real feature.
+If `proto up` or `proto shoot` failed, say so with the error instead of leaving things out.
 
-Leave the `.prototypes/` file in place so the alternatives stay available for comparison,
-and reply with screenshots of the real feature as well.
+## 7. Only if asked: build it
+
+When the request says to implement the winner, build it in the real codebase with the
+project's own components and patterns; the variant file is a starting point, not a paste.
+Check it in the running app and reply with screenshots of the real feature.
+
+## Follow-up requests in the same session
+
+| The user asks for | Do |
+|---|---|
+| More takes on an existing prototype ("two more heroes") | `proto add <same slug> --variants "D:…,E:…"` |
+| Something new ("now the pricing page") | `proto add <new slug> …` |
+| Variations of one variant ("B but with a map") | new letters in the same prototype, named after B |
+| To drop a direction or prototype | `proto archive <slug>` (still reachable under Archived) |
+| Prototypes for a different project | `proto up --project <dir>`: a separate app for that project |
+
+## Lifecycle
+
+| When | Do |
+|---|---|
+| The user says they are done, or the winner has been built into the codebase | `proto stop` (files kept; `proto up` brings it back on the same link) |
+| The user asks to throw the prototypes away | `proto rm` |
+| The user wants to keep them | `proto keep` (`--off` undoes) |
+| The user wants their links | `proto ls` |
+
+On its own: a server stops after 6 hours with no edits and no open page, and every
+`proto up` deletes sessions untouched for 14 days unless kept and drops leftover tailnet
+rules (`proto gc` does the same on demand). The user can also Keep or Stop from the session
+menu in the page.
+
+## When something is off
+
+- **No tailnet** (Tailscale missing or logged out): the link is local only; say so.
+- **The link doesn't answer:** `proto up` prints the error and the local link; the server log
+  is the app's `.proto/dev.log`.
+- **A variant shows a red error box:** that variant threw. Fix the file; it re-renders.
+- **Don't edit** the app's `shell/`, `src/main.ts`, `src/registry.ts` or `src/mount.*`. If the
+  shell itself misbehaves, fix it in `~/.claude/skills/prototype/app/` and say so.
