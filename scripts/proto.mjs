@@ -48,8 +48,11 @@ const die = msg => { console.error(`proto: ${msg}`); process.exit(1) }
 const readJson = (f, fallback) => { try { return JSON.parse(readFileSync(f, 'utf8')) } catch { return fallback } }
 const writeJson = (f, v) => { mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, JSON.stringify(v, null, 2) + '\n') }
 const tilde = p => p.replace(homedir(), '~')
+const WIN = process.platform === 'win32'
 const run = (bin, a, opts = {}) => spawnSync(bin, a, { encoding: 'utf8', ...opts })
-const has = bin => run('which', [bin]).status === 0
+// npm and pnpm are .cmd scripts on Windows, which Node only starts through a shell.
+const runCli = (bin, a, opts = {}) => WIN ? run([bin, ...a].join(' '), [], { ...opts, shell: true }) : run(bin, a, opts)
+const has = bin => run(WIN ? 'where' : 'which', [bin]).status === 0
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 // ---------- where things are ----------
@@ -91,6 +94,11 @@ function detectStack(project) {
 
 // ---------- processes, ports, tailnet ----------
 const alive = pid => { if (!pid) return false; try { process.kill(pid, 0); return true } catch { return false } }
+// The dev server and what it started (esbuild): its process group, or its tree on Windows.
+function kill(pid) {
+  if (WIN) return run('taskkill', ['/pid', String(pid), '/T', '/F'])
+  try { process.kill(-pid, 'SIGTERM') } catch { try { process.kill(pid, 'SIGTERM') } catch { /* gone */ } }
+}
 async function answers(url, ms = 2500) {
   try { const r = await fetch(url, { signal: AbortSignal.timeout(ms) }); return r.ok } catch { return false }
 }
@@ -159,11 +167,9 @@ function scaffold(dir, project) {
 function install(dir) {
   const t = Date.now()
   const pnpm = has('pnpm')
-  // Windows: npm and pnpm are .cmd files, which Node starts only through a shell (else ENOENT)
-  const shell = process.platform === 'win32'
   const r = pnpm
-    ? run('pnpm', ['install', '--ignore-workspace', '--prefer-offline', '--reporter=silent'], { cwd: dir, stdio: 'inherit', shell })
-    : run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: dir, stdio: 'inherit', shell })
+    ? runCli('pnpm', ['install', '--ignore-workspace', '--prefer-offline', '--reporter=silent'], { cwd: dir, stdio: 'inherit' })
+    : runCli('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: dir, stdio: 'inherit' })
   if (r.status !== 0) die('installing the prototype app failed (see above)')
   console.log(`installed in ${((Date.now() - t) / 1000).toFixed(1)}s`)
 }
@@ -275,7 +281,7 @@ function archive() {
 async function stop(dir = sessionDir(), reason = 'stopped') {
   const s = readSession(dir)
   if (!s) return
-  if (alive(s.pid)) { try { process.kill(-s.pid, 'SIGTERM') } catch { try { process.kill(s.pid, 'SIGTERM') } catch { /* gone */ } } }
+  if (alive(s.pid)) kill(s.pid)
   if (s.tailnetPort && has('tailscale')) {
     const net = tailnet()
     if (net?.rules[s.tailnetPort] === s.port) run('tailscale', ['serve', `--https=${s.tailnetPort}`, 'off'])
@@ -384,7 +390,7 @@ const commands = {
   stack: () => { const d = detectStack(projectRoot()); console.log(`${d.stack} (${d.why})`) },
 }
 if (!commands[cmd]) {
-  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 14).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
+  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split(/\r?\n/).slice(1, 14).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
   process.exit(cmd ? 1 : 0)
 }
 await commands[cmd]()

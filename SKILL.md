@@ -1,7 +1,8 @@
 ---
 name: prototype
 description: Use when the user asks to prototype a UI, wants several versions or variations of a screen, component, section or interaction, or says "/prototype", "/prototype 3 <feature>", "show me options for…", "give me a few versions of…". Also use for follow-up requests in the same session ("now 5 variations of the hero", "add two more", "try it on the phone"). NOT for a single straightforward UI change, logic with no visible surface, or comparing libraries or APIs.
-allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/proto.mjs *)
+allowed-tools:
+  - Bash(node "${CLAUDE_SKILL_DIR}/scripts/proto.mjs" *)
 ---
 
 # Prototype
@@ -15,10 +16,11 @@ The app already has its navigation (a sidebar tree, breadcrumbs that open lobbie
 variant tabs, edge arrows, a focus mode with a dock, light and dark, phone frames, "editing" dots). You
 only write variant files.
 
-`proto` below means `${CLAUDE_SKILL_DIR}/scripts/proto.mjs` (executable; call it by
-that path, not through a shell variable). It finds the session from `$CLAUDE_CODE_SESSION_ID`
-and the project from the git root of the current folder. A subagent building into the main
-session's app passes `--session <the main session id>` on every call.
+`proto` below means `node "${CLAUDE_SKILL_DIR}/scripts/proto.mjs"` (through `node`, the path in
+double quotes, not a shell variable: the same command works in Bash, Git Bash and PowerShell). It
+finds the session from `$CLAUDE_CODE_SESSION_ID` and the project from the git root of the current
+folder. A subagent building into the main session's app passes `--session <the main session id>`
+on every call.
 
 ## 1. Start the session app, then send the link
 
@@ -61,8 +63,7 @@ interaction model. Two directions that differ only in color or spacing are one d
 ## 4. Add the prototype, then build each variant
 
 ```
-proto add <slug> --title "Hero sections" --ask "<the user's request, in their words>" \
-  --variants "A:Split media,B:Big price,C:Map first" [--kind phone] [--from <slug>/<letter>]
+proto add <slug> --title "Hero sections" --ask "<the user's request, in their words>" --variants "A:Split media,B:Big price,C:Map first" [--kind phone] [--from <slug>/<letter>]
 ```
 
 `--from` is for a prototype built from part of an existing variant ("take the hero from

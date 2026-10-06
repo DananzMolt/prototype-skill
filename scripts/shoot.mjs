@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { findChrome } from './chrome.mjs'
 
 const args = process.argv.slice(2)
 const flags = Object.fromEntries(args.filter(a => a.startsWith('--') && !a.startsWith('--click=')).map(a => a.slice(2).split('=')))
@@ -21,9 +22,7 @@ if (!rawUrl || !outDir || routes.length === 0) {
   process.exit(1)
 }
 
-const CHROME = process.env.CHROME || (process.platform === 'win32'
-  ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-  : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+const CHROME = findChrome()
 const SIZES = [
   { name: 'desktop', width: 1440, height: 900, deviceScaleFactor: 2, mobile: false },
   { name: 'mobile', width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
