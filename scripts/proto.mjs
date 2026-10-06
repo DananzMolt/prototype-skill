@@ -159,9 +159,11 @@ function scaffold(dir, project) {
 function install(dir) {
   const t = Date.now()
   const pnpm = has('pnpm')
+  // Windows: npm and pnpm are .cmd files, which Node starts only through a shell (else ENOENT)
+  const shell = process.platform === 'win32'
   const r = pnpm
-    ? run('pnpm', ['install', '--ignore-workspace', '--prefer-offline', '--reporter=silent'], { cwd: dir, stdio: 'inherit' })
-    : run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: dir, stdio: 'inherit' })
+    ? run('pnpm', ['install', '--ignore-workspace', '--prefer-offline', '--reporter=silent'], { cwd: dir, stdio: 'inherit', shell })
+    : run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: dir, stdio: 'inherit', shell })
   if (r.status !== 0) die('installing the prototype app failed (see above)')
   console.log(`installed in ${((Date.now() - t) / 1000).toFixed(1)}s`)
 }
@@ -181,7 +183,7 @@ async function up() {
     s = patchSession(dir, { port, stoppedAt: null, stopReason: null })
     mkdirSync(join(dir, '.proto'), { recursive: true })
     const log = openSync(join(dir, '.proto', 'dev.log'), 'a')
-    const child = spawn(process.execPath, [join(dir, 'node_modules', 'vite', 'bin', 'vite.js')], { cwd: dir, detached: true, stdio: ['ignore', log, log] })
+    const child = spawn(process.execPath, [join(dir, 'node_modules', 'vite', 'bin', 'vite.js')], { cwd: dir, detached: true, windowsHide: true, stdio: ['ignore', log, log] })
     child.unref()
     s = patchSession(dir, { pid: child.pid })
     for (let i = 0; i < 60 && !await answers(`http://127.0.0.1:${port}/__proto/status`, 1000); i++) await sleep(250)

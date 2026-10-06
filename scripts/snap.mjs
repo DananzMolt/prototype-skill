@@ -162,7 +162,9 @@ const PHONE = { width: '373px', height: '832px', borderRadius: '55px', border: '
 const phoneFrame = body => `<div style={{"display": "flex", "justifyContent": "center", "zoom": "0.8", "padding": "8px 0"}}><div style={{${Object.entries(PHONE).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(', ')}}}>${body}</div></div>`
 
 // ---------- drive Chrome ----------
-const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+const CHROME = process.env.CHROME || (process.platform === 'win32'
+  ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+  : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
 mkdirSync(outDir, { recursive: true })
 const profile = mkdtempSync(join(tmpdir(), 'proto-snap-'))
 const chrome = spawn(CHROME, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--hide-scrollbars', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })

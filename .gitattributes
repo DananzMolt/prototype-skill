@@ -1,0 +1,5 @@
+# Keep LF line endings on every checkout, so the scripts' "#!/usr/bin/env node" line works on Windows too
+# (with core.autocrlf=true, Git would write CRLF and the shebang becomes "node\r").
+* text=auto eol=lf
+*.png binary
+*.gif binary
