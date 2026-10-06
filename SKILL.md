@@ -119,11 +119,26 @@ Choose the best variant yourself. The reply always includes:
 4. The pick and why it wins for this product and its users, in two to four sentences, and
    what you would take from the runners-up.
 
+That is your recommendation; it marks nothing in the page. The page marks a pick only when the
+user makes one (next section).
+
+## When the user chooses
+
+As soon as the user chooses a variant ("go with A", "A it is", "build B", "let's move forward
+with C"), run `proto pick <slug> <letter>` before anything else, without asking. If they don't
+name the prototype, it's the one you showed them last. The page then marks it (a check in the
+sidebar, the variant first and outlined in its overview, the rest faded but still there) and
+everything built from the prototype stays nested under it. Choosing again replaces the pick;
+"undo that" is `proto pick <slug> --off`. Then do what they asked next, if anything.
+
+A pick is not an archive: archive is for directions the user drops, and a picked prototype is
+the one they will come back to.
+
 If `proto up` or `proto shoot` failed, say so with the error instead of leaving things out.
 
 ## 7. Only if asked: build it
 
-When the request says to implement the winner, build it in the real codebase with the
+When the request says to implement the winner (the picked variant), build it in the real codebase with the
 project's own components and patterns; the variant file is a starting point, not a paste.
 Check it in the running app and reply with screenshots of the real feature.
 
@@ -154,6 +169,7 @@ Each module is roughly 4 to 30 KB and goes through your tool calls, so snap only
 | Something new ("now the pricing page") | `proto add <new slug> …` |
 | Variations of one variant ("B but with a map") | new letters in the same prototype, named after B |
 | A part of one variant, explored on its own ("B's hero, but better") | `proto add <new slug> --from <slug>/B …` |
+| A choice ("go with A", "build B") | `proto pick <slug> <letter>` first, then what they asked |
 | To drop a direction or prototype | `proto archive <slug>` (still reachable under Archived) |
 | The prototypes in a doc to share | `proto snap`, then a Claude Doc (section above) |
 | Prototypes for a different project | `proto up --project <dir>`: a separate app for that project |

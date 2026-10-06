@@ -58,6 +58,7 @@ Keep going in the same session and everything lands in the same app, under the s
 | "take B's hero further" | a new prototype nested under B, then its CTA under that |
 | "try it on the phone" | the variants in phone frames |
 | "build the winner" | the real feature in your codebase, with screenshots |
+| "go with A" | A is marked as picked in the page, the others stay |
 | "put these in a doc I can share" | a Claude Doc with a static snapshot of each variant |
 
 ## What you get

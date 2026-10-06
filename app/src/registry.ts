@@ -2,7 +2,7 @@
 // letter (A.tsx, B.tsx … or A.vue …). Variant names live in meta.ts so every stack shares them.
 import type { Proto, Variant } from '../shell/shell'
 
-type Meta = { title: string; ask?: string; kind?: 'web' | 'phone'; created?: string; archived?: boolean; from?: string; variants?: Record<string, string> }
+type Meta = { title: string; ask?: string; kind?: 'web' | 'phone'; created?: string; archived?: boolean; from?: string; picked?: string; variants?: Record<string, string> }
 
 const metas = import.meta.glob<Meta>('./protos/*/meta.ts', { eager: true, import: 'default' })
 // Only files named by a letter are variants; helpers beside them (parts.tsx) have no default
@@ -24,6 +24,6 @@ export const protos: Proto[] = Object.entries(metas)
       .sort(order)
     // from: "home/B" (built from variant B of home) or "home" (from the prototype as a whole)
     const [fp, fv = ''] = typeof meta.from === 'string' ? meta.from.split('/') : []
-    return { id, title: meta.title ?? id, ask: meta.ask ?? '', kind: meta.kind ?? 'web', created: meta.created ?? '', archived: !!meta.archived, from: fp ? { proto: fp, variant: fv } : undefined, variants }
+    return { id, title: meta.title ?? id, ask: meta.ask ?? '', kind: meta.kind ?? 'web', created: meta.created ?? '', archived: !!meta.archived, from: fp ? { proto: fp, variant: fv } : undefined, picked: meta.picked, variants }
   })
   .sort((a, b) => a.created.localeCompare(b.created))

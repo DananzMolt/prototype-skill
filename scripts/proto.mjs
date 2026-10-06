@@ -6,6 +6,7 @@
 //             [--from <slug>/<letter>]   built from that variant: nested under it in the page
 //   proto shoot [route…] [--theme dark] [--focus] [--click <css>]  screenshots, e.g. hero/A hero
 //   proto snap <slug>[/<letter>]… [--width 672]   static HTML snapshots for a Claude Doc
+//   proto pick <slug> <letter> [--off]   the user chose this variant: marked in the page
 //   proto archive <slug> [--off]    proto keep [--off]      proto url    proto stack
 //   proto stop    proto rm    proto ls    proto gc
 //
@@ -270,6 +271,23 @@ function add() {
   if (s.url) console.log(`${s.url}#/${slug}`)
 }
 
+// The user chose a variant ("go with A"): the page marks it and lists it first. The other
+// variants stay, and so does everything built from this prototype.
+function pick() {
+  const dir = sessionDir()
+  need(dir)
+  const [slug, id] = args
+  const metaFile = join(dir, 'src', 'protos', slug || '', 'meta.ts')
+  if (!slug || !existsSync(metaFile)) die('which prototype? proto pick <slug> <letter>')
+  const text = readFileSync(metaFile, 'utf8')
+  const meta = JSON.parse(text.replace(/^[\s\S]*?export default\s*/, '').replace(/;?\s*$/, ''))
+  if (flags.off) delete meta.picked
+  else if (!id || !meta.variants?.[id]) die(`which variant of ${slug}? (${Object.keys(meta.variants || {}).join(', ')})`)
+  else meta.picked = id
+  writeFileSync(metaFile, text.replace(/export default[\s\S]*$/, `export default ${JSON.stringify(meta, null, 2)}\n`))
+  console.log(flags.off ? `${slug}: no pick` : `${slug}: picked ${id} · ${meta.variants[id]}`)
+}
+
 function archive() {
   const dir = sessionDir()
   need(dir)
@@ -386,7 +404,7 @@ async function snap() {
 }
 
 const commands = {
-  up, add, archive, shoot, snap, gc: () => gc(false), ls,
+  up, add, pick, archive, shoot, snap, gc: () => gc(false), ls,
   stop: async () => { await stop(); console.log('stopped (files kept; proto up restarts it on the same link)') },
   rm: () => rm(),
   keep: () => { const dir = sessionDir(); need(dir); patchSession(dir, { keep: !flags.off }); console.log(flags.off ? 'no longer kept' : 'kept until deleted by hand') },
@@ -394,7 +412,7 @@ const commands = {
   stack: () => { const d = detectStack(projectRoot()); console.log(`${d.stack} (${d.why})`) },
 }
 if (!commands[cmd]) {
-  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split(/\r?\n/).slice(1, 14).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
+  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split(/\r?\n/).slice(1, 15).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
   process.exit(cmd ? 1 : 0)
 }
 await commands[cmd]()
