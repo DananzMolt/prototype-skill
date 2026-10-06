@@ -127,8 +127,13 @@ Each session's app lives in `<project>/.prototypes/<session>/`, git-ignored, wit
 | When | What happens |
 |---|---|
 | No edits and no open page for 6 hours | the server stops; asking again restarts it on the same link |
+| Every prototype picked or archived, and no open page for 30 minutes | the server stops sooner, since nothing is left to decide |
 | A session untouched for 14 days | it's deleted, unless you pressed **Keep** in the session menu |
 | You say you're done | Claude stops it; the files stay |
+
+### Light on your machine
+
+A design's code loads the first time it's shown, so picked, archived and unopened prototypes cost nothing. Overviews run only the previews on or near the screen. A running session's server idles at about 200 MB with no CPU, and its memory is capped at 1 GB. A tab left open through hundreds of edits reloads itself while hidden, to free the old versions the browser keeps. `.github/stress.mjs` measures all of it: 40 prototypes × 20 heavy variants, edit storms, and navigating through every variant.
 
 ## What's inside
 

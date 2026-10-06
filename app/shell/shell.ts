@@ -10,7 +10,7 @@
 import { ic, esc, ON, TAB_ON, TAB_OFF, IB, SEP, pulse, pop, item, ago, clock } from './ui'
 import { dock, edge, smooth, runDock, restoreEdgeLabels, stageHover, canHover, installPointerTracking, fadeOut } from './motion'
 
-export type Variant = { id: string; name: string; component: unknown; file: string }
+export type Variant = { id: string; name: string; file: string; load: () => Promise<unknown> }
 export type Proto = { id: string; title: string; ask: string; kind: 'web' | 'phone'; created: string; archived: boolean; from?: { proto: string; variant: string }; picked?: string; variants: Variant[] }
 export type Session = { id: string; name: string; path: string; createdAt: string; url?: string; localUrl?: string }
 type Mount = (el: HTMLElement, component: any) => () => void
@@ -37,7 +37,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     side: q.has('side') ? q.get('side') !== '0' : localStorage.getItem('proto-side') !== '0',
     sideW: Math.min(SIDE_MAX, Math.max(SIDE_MIN, Number(localStorage.getItem('proto-side-w')) || SIDE_W)),
     drawer: false,
-    tree: new Set<string>(),
+    tree: new Map<string, boolean>(),
     scale: 0,
     stack: q.has('stack') ? q.get('stack') !== '0' : localStorage.getItem('proto-lobby') === 'stack',
     dark: q.get('theme') ? q.get('theme') === 'dark' : stored ? stored === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches,
@@ -95,6 +95,10 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const PICK = 'text-emerald-700 dark:text-emerald-400'
   const pickChip = (p: Proto, cls = '') => pickOf(p) ? `<span title="Picked ${esc(pickOf(p))} · ${esc(p.variants.find(v => v.id === pickOf(p))!.name)}" class="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-full bg-emerald-500/10 px-1.5 text-[11px] font-semibold ${PICK} ${cls}">${ic('check', 'size-3')}${esc(pickOf(p))}</span>` : ''
   const wide = () => matchMedia('(min-width: 1024px)').matches
+  // The sidebar opens the branch you're on (so its row is there to see) plus whatever you opened
+  // yourself; branches you only passed through close again behind you.
+  const branch = () => { const q = cur(); return new Set(q ? [...lineage(q).map(a => a.p.id), q.id] : []) }
+  const isOpen = (id: string, onBranch = branch()) => st.tree.get(id) ?? onBranch.has(id)
 
   // ---------- skeleton ----------
   root.innerHTML = `<div class="flex h-dvh bg-white text-[13px] text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
@@ -125,12 +129,37 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   let layer: Layer | null = null
 
   const refsFor = (p: Place): unknown[] => {
-    if (p.view === 'session') return [nestKey(), ...lobbyRoots().flatMap(q => [q.id, q.title, ...lobbyOrder(q).slice(0, 1).flatMap(v => [v.component, v.name])])]
+    if (p.view === 'session') return [nestKey(), ...lobbyRoots().flatMap(q => [q.id, q.title, ...lobbyOrder(q).slice(0, 1).flatMap(v => [v.file, v.name])])]
     const proto = byId(p.proto)!
-    if (p.view === 'proto') return [st.stack, nestKey(), proto.title, proto.kind, ...lobbyOrder(proto).flatMap(v => [v.id, v.name, v.component])]
+    if (p.view === 'proto') return [st.stack, nestKey(), proto.title, proto.kind, ...lobbyOrder(proto).flatMap(v => [v.id, v.name, v.file])]
     const v = proto.variants.find(v => v.id === p.variant)!
-    return [proto.kind, v.component]
+    return [proto.kind, v.file]
   }
+
+  // ---------- loading designs ----------
+  // A variant's module loads the first time it is shown and is kept by file, so a session
+  // with hundreds of variants (picked, archived, never opened) only pays for what is on
+  // screen. A module that fails to load shows its error in place and is retried after edits.
+  const loaded = new Map<string, unknown>()
+  const loading = new Map<string, Promise<unknown>>()
+  const failed = new Set<string>()
+  // The browser keeps a failed import for good, so after an edit a broken file is fetched again
+  // under a fresh URL.
+  const retry = new Map<string, number>()
+  function load(v: Variant) {
+    if (loaded.has(v.file)) return Promise.resolve(loaded.get(v.file))
+    const t = retry.get(v.file)
+    const get = t ? () => import(/* @vite-ignore */ `${v.file}?t=${t}`).then(m => m.default) : v.load
+    if (!loading.has(v.file)) loading.set(v.file, get().then(
+      c => { loaded.set(v.file, c); loading.delete(v.file); failed.delete(v.file); return c },
+      e => { loading.delete(v.file); failed.add(v.file); throw e }))
+    return loading.get(v.file)!
+  }
+  // Every hot update leaves its old module in the browser's module map for good. After many,
+  // the page reloads itself while its tab is hidden, which frees them; it comes back where it was.
+  let updates = 0
+  const reloadIfStale = () => { if (updates > 300 && document.visibilityState === 'hidden') location.reload() }
+  document.addEventListener('visibilitychange', reloadIfStale)
 
   const thumb = (proto: Proto, aspect: string) => `<div data-thumb class="relative w-full overflow-hidden bg-white dark:bg-zinc-950 ${aspect}"><div inert class="pointer-events-none overflow-hidden ${proto.kind === 'phone' ? 'flex items-center justify-center bg-zinc-100 dark:bg-zinc-900' : ''} [contain:layout_paint]" style="width:1200px;height:750px">${proto.kind === 'phone' ? `<div class="${PHONE}" style="width:393px;height:852px;zoom:.78"><div data-mount class="h-full overflow-hidden"></div></div>` : '<div data-mount class="h-full"></div>'}</div></div>`
 
@@ -140,8 +169,32 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     // of covering the shell. The inner box scrolls.
     const el = document.createElement('div')
     el.className = 'absolute inset-0 [contain:layout_paint]'
-    const unmounts: (() => void)[] = []
-    const mountAll = (list: Variant[]) => el.querySelectorAll<HTMLElement>('[data-mount]').forEach((host, i) => unmounts.push(mount(host, list[i].component)))
+    // Each host runs its design while it is mounted; lobbies mount a host only while it is on or
+    // near the screen, so a long grid or the full-size list costs what is visible, not all of it.
+    const live = new Map<HTMLElement, () => void>()
+    let gone = false
+    const start = (host: HTMLElement, v: Variant) => {
+      if (live.has(host)) return
+      live.set(host, () => {})
+      load(v).then(
+        c => { if (!gone && live.has(host)) live.set(host, mount(host, c)) },
+        e => { if (!gone && live.has(host)) host.innerHTML = `<pre class="m-4 whitespace-pre-wrap rounded-lg bg-rose-50 p-4 text-xs text-rose-700 dark:bg-rose-950 dark:text-rose-200">${esc(e?.stack || e)}</pre>` })
+    }
+    const stop = (host: HTMLElement) => {
+      const off = live.get(host)
+      if (!off) return
+      live.delete(host)
+      try { off() } catch { /* already gone */ }
+      host.replaceChildren()
+    }
+    let io: IntersectionObserver | null = null
+    const mountAll = (list: Variant[], lazy: boolean) => {
+      const hosts = [...el.querySelectorAll<HTMLElement>('[data-mount]')]
+      const of = new Map(hosts.map((h, i) => [h, list[i]]))
+      if (!lazy) return hosts.forEach(h => start(h, of.get(h)!))
+      io = new IntersectionObserver(entries => { for (const e of entries) e.isIntersecting ? start(e.target as HTMLElement, of.get(e.target as HTMLElement)!) : stop(e.target as HTMLElement) }, { root: el.firstElementChild, rootMargin: '600px 0px' })
+      hosts.forEach(h => io!.observe(h))
+    }
     let inner = ''
     if (p.view === 'variant') {
       const proto = byId(p.proto)!
@@ -150,10 +203,10 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
         : '<div data-mount class="h-full"></div>'
     } else inner = p.view === 'proto' ? protoLobby(byId(p.proto)!) : sessionLobby()
     el.innerHTML = `<div class="h-full overflow-auto">${inner}</div>`
-    if (p.view === 'variant') { const proto = byId(p.proto)!; mountAll([proto.variants.find(v => v.id === p.variant)!]) }
-    else if (p.view === 'proto') mountAll(lobbyOrder(byId(p.proto)!))
-    else mountAll(lobbyRoots().flatMap(q => lobbyOrder(q).slice(0, 1)))
-    return { el, refs: refsFor(p), dispose: () => unmounts.forEach(u => { try { u() } catch { /* already gone */ } }) }
+    if (p.view === 'variant') { const proto = byId(p.proto)!; mountAll([proto.variants.find(v => v.id === p.variant)!], false) }
+    else if (p.view === 'proto') mountAll(lobbyOrder(byId(p.proto)!), true)
+    else mountAll(lobbyRoots().flatMap(q => lobbyOrder(q).slice(0, 1)), true)
+    return { el, refs: refsFor(p), dispose: () => { gone = true; io?.disconnect(); [...live.keys()].forEach(stop) } }
   }
 
   function show(fade: boolean) {
@@ -190,8 +243,6 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     st.open = null
     st.drawer = false
     if (p.view !== 'variant') st.focus = false
-    // The sidebar opens the branch you're on, so its row is always there to see.
-    if (p.view !== 'session') { const q = byId(p.proto)!; for (const x of [...lineage(q).map(a => a.p), q]) st.tree.add(x.id) }
     localStorage.setItem(`proto-place-${session.id}`, hashOf(p))
     if (moved) show(fade && !!layer)
     render()
@@ -409,10 +460,11 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   // sits under that variant's row (blue guide line), at any depth.
   function tree(inDrawer: boolean) {
     const p = cur(), view = st.place.view, vid = view === 'variant' ? st.place.variant : ''
+    const onBranch = branch()
     const ROW = 'text-zinc-600 hover:bg-zinc-900/[.04] hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/[.06] dark:hover:text-white'
     const nested = (list: Proto[]) => list.length ? `<div class="ml-[15px] border-l-2 border-sky-500/30 pl-1">${list.map(node).join('')}</div>` : ''
     function node(q: Proto): string {
-      const open = st.tree.has(q.id), here = q.id === p?.id && view !== 'session'
+      const open = isOpen(q.id, onBranch), here = q.id === p?.id && view !== 'session'
       const variants = q.variants.map(v => {
         const on = here && vid === v.id, ks = kidsOf(q, v.id)
         return `<button data-act="pv:${esc(q.id)}:${v.id}" aria-current="${on}" class="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left ${on ? `${ON} font-medium` : ROW}"><span class="w-4 shrink-0 text-center text-xs font-semibold ${on ? '' : 'text-zinc-400'}">${v.id}</span><span class="min-w-0 truncate">${esc(v.name)}</span>${v.id === pickOf(q) ? `<span title="Picked">${ic('check', `size-3.5 ${PICK}`)}</span>` : ''}${editing(q.id, v.id) ? pulse('size-1.5') : ''}${ks.length ? `<span class="ml-auto" title="${ks.length} built from ${v.id}">${ic('branch', 'size-3.5 text-sky-500')}</span>` : ''}</button>${nested(ks)}`
@@ -467,7 +519,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       case 'step': return step(Number(arg))
       case 'open': st.open = st.open === arg ? null : arg; st.copied = false; if (arg === 'session') refreshStatus(); return render()
       case 'archived': st.archived = !st.archived; return render()
-      case 'fold': st.tree.has(arg) ? st.tree.delete(arg) : st.tree.add(arg); return render()
+      case 'fold': st.tree.set(arg, !isOpen(arg)); return render()
       // Wide windows dock the sidebar (remembered); narrower ones open it as a drawer.
       case 'side': if (!wide()) { st.drawer = arg === '1'; return render() } st.side = arg === '1'; localStorage.setItem('proto-side', st.side ? '1' : '0'); return render()
       case 'drawer': st.drawer = arg === '1'; return render()
@@ -614,30 +666,35 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       const g = grown.find(x => x.p.id !== here)
       if (g) return go(g.added.length === 1 ? { view: 'variant', proto: g.p.id, variant: g.added[0].id } : { view: 'proto', proto: g.p.id })
       if (!valid(st.place)) return go(defaultPlace())
-      // Same place, new modules (a meta edit or a re-evaluated file): swap without a fade.
+      // Same place, new modules (a meta edit or a re-evaluated file): swap without a fade. A
+      // variant that failed to load gets another try with the fresh registry.
       const refs = refsFor(st.place)
-      if (!layer || refs.length !== layer.refs.length || refs.some((r, i) => r !== layer!.refs[i])) show(false)
+      if (!layer || failed.size || refs.length !== layer.refs.length || refs.some((r, i) => r !== layer!.refs[i])) show(false)
       render()
     },
+    /** Whether this file's module is in use on the page (loaded, or failed and waiting for a fix). */
+    shows: (file: string) => loaded.has(file) || failed.has(file),
     replaceVariant(file: string, component: unknown) {
       const nameOf = (c: any) => c?.displayName || c?.__name || c?.name || ''
-      let renamed = false
-      for (const p of protos) for (const v of p.variants) {
-        if (v.file !== file || v.component === component) continue
-        renamed ||= nameOf(v.component) !== nameOf(component)
-        v.component = component
-      }
-      if (renamed) show(false)
+      const old = loaded.get(file)
+      const broken = failed.delete(file)
+      loaded.set(file, component)
+      updates++
+      if (broken || (old !== component && nameOf(old) !== nameOf(component))) show(false)
+      reloadIfStale()
     },
     setSession(next: Session) { session = next; render() },
     setLive(live: boolean) { st.live = live; render() },
     edited(paths: string[]) {
+      let retrying = false
       for (const path of paths) {
         if (!path.includes('/src/protos/')) continue
+        if (failed.has(path)) { failed.delete(path); retry.set(path, Date.now()); retrying = true }
         st.lastEdit = Date.now()
         const m = path.match(/\/src\/protos\/([^/]+)\/([A-Z]{1,2})\.\w+/)
         if (m) st.editing = { proto: m[1], variant: m[2] }
       }
+      if (retrying) show(false)
       render()
       clearTimeout(editTimer)
       editTimer = window.setTimeout(() => { st.editing = null; render() }, 10_000)
