@@ -40,8 +40,10 @@ export function prototypeServer(session) {
   return {
     name: 'prototype-server',
     configureServer(server) {
-      const src = join(dir, 'src')
-      server.watcher.on('all', (_, path) => { if (path.startsWith(src)) activity = Date.now() })
+      // Compared with forward slashes: the watcher's paths and this one differ on Windows.
+      const slash = p => p.replaceAll('\\', '/')
+      const src = slash(join(dir, 'src'))
+      server.watcher.on('all', (_, path) => { if (slash(path).startsWith(src)) activity = Date.now() })
       server.middlewares.use('/__proto', (req, res) => {
         let body = ''
         req.on('data', c => { body += c })

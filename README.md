@@ -18,9 +18,9 @@ In Claude Code:
 /plugin install prototype@prototype-skill
 ```
 
-To get updates automatically, open `/plugin`, go to **Marketplaces**, pick `prototype-skill` and choose **Enable auto-update**. Otherwise run `/plugin marketplace update prototype-skill` when you want the latest.
+To get updates automatically, open `/plugin`, go to **Marketplaces**, pick `prototype-skill` and choose **Enable auto-update**. Otherwise, to get the latest, choose **Update marketplace** there, or run `claude plugin update prototype@prototype-skill` in a terminal.
 
-**Needs** Node 22+, pnpm or npm, and Google Chrome (for screenshots). For the link on your phone, [Tailscale](https://tailscale.com) too.
+**Runs on** macOS, Linux and Windows (PowerShell or Git Bash). **Needs** Node 22+, pnpm or npm, and Chrome for screenshots (Chromium or Edge work too; set `CHROME` to a browser's path to pick one). For the link on your phone, [Tailscale](https://tailscale.com) too.
 
 <details>
 <summary>Without the plugin system</summary>
@@ -29,6 +29,12 @@ Clone it as a personal skill and update it with `git pull`:
 
 ```sh
 git clone https://github.com/DananzMolt/prototype-skill ~/.claude/skills/prototype
+```
+
+In PowerShell:
+
+```powershell
+git clone https://github.com/DananzMolt/prototype-skill "$HOME\.claude\skills\prototype"
 ```
 </details>
 
@@ -131,6 +137,7 @@ Each session's app lives in `<project>/.prototypes/<session>/`, git-ignored, wit
 | `scripts/proto.mjs` | Session manager: `up`, `add`, `shoot`, `snap`, `archive`, `stop`, `rm`, `keep`, `ls`, `gc` |
 | `scripts/shoot.mjs` | Desktop and phone screenshots through headless Chrome |
 | `scripts/snap.mjs` | Static HTML snapshots of variants, for sharing in a Claude Doc |
+| `scripts/chrome.mjs` | Finds Chrome, Chromium or Edge for the two above |
 | `app/` | The template each session app is copied from (Vite, Tailwind, the shell, React and Vue adapters) |
 | `.claude-plugin/` | Plugin and marketplace manifests |
 

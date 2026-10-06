@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { findChrome } from './chrome.mjs'
 
 const [rawUrl, outDir, widthArg, specFile] = process.argv.slice(2)
 if (!rawUrl || !outDir || !specFile) { console.error('usage: snap.mjs <app-url> <out-dir> <width> <spec.json>'); process.exit(1) }
@@ -162,9 +163,7 @@ const PHONE = { width: '373px', height: '832px', borderRadius: '55px', border: '
 const phoneFrame = body => `<div style={{"display": "flex", "justifyContent": "center", "zoom": "0.8", "padding": "8px 0"}}><div style={{${Object.entries(PHONE).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(', ')}}}>${body}</div></div>`
 
 // ---------- drive Chrome ----------
-const CHROME = process.env.CHROME || (process.platform === 'win32'
-  ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-  : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+const CHROME = findChrome()
 mkdirSync(outDir, { recursive: true })
 const profile = mkdtempSync(join(tmpdir(), 'proto-snap-'))
 const chrome = spawn(CHROME, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--hide-scrollbars', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
