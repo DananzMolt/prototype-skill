@@ -19,6 +19,8 @@ type Layer = { el: HTMLElement; refs: unknown[]; dispose: () => void }
 type Status = { lastEdit: number; keep: boolean; idleHours: number; deleteDays: number }
 
 const PHONE = 'shrink-0 overflow-hidden rounded-[55px] border-[10px] border-zinc-900 bg-white text-zinc-900 shadow-xl dark:border-zinc-700 dark:bg-black dark:text-white'
+// The sidebar's width: dragged between these, double-click resets it.
+const SIDE_W = 288, SIDE_MIN = 200, SIDE_MAX = 480
 const INTERACTIVE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="slider"], [role="listbox"], [role="menu"]'
 
 export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Proto[]; session: Session }) {
@@ -33,6 +35,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     open: null as string | null,
     archived: false,
     side: q.has('side') ? q.get('side') !== '0' : localStorage.getItem('proto-side') !== '0',
+    sideW: Math.min(SIDE_MAX, Math.max(SIDE_MIN, Number(localStorage.getItem('proto-side-w')) || SIDE_W)),
     drawer: false,
     tree: new Set<string>(),
     scale: 0,
@@ -91,6 +94,9 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   // ---------- skeleton ----------
   root.innerHTML = `<div class="flex h-dvh bg-white text-[13px] text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
     <aside data-side></aside>
+    <div data-grip role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" title="Drag to resize · double-click to reset" class="group relative z-40 -mx-1 hidden w-2 shrink-0 cursor-col-resize touch-none outline-none">
+      <span class="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-transparent transition-colors group-hover:bg-sky-500/50 group-focus-visible:bg-sky-500 group-data-[dragging]:bg-sky-500"></span>
+    </div>
     <div class="flex min-w-0 flex-1 flex-col">
       <header data-bar class="relative z-30 flex h-12 shrink-0 items-center gap-1 border-b border-black/[.07] px-2 dark:border-white/10"></header>
       <div data-tabs></div>
@@ -102,6 +108,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     <div data-drawer></div>
   </div>`
   const side = root.querySelector<HTMLElement>('[data-side]')!
+  const grip = root.querySelector<HTMLElement>('[data-grip]')!
   const drawer = root.querySelector<HTMLElement>('[data-drawer]')!
   const bar = root.querySelector<HTMLElement>('[data-bar]')!
   const tabs = root.querySelector<HTMLElement>('[data-tabs]')!
@@ -337,7 +344,10 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       const t = host.querySelector('[data-tree]')
       if (t) t.scrollTop = top
     }
-    side.className = st.side ? 'hidden w-72 shrink-0 flex-col border-r border-black/[.07] lg:flex dark:border-white/10' : 'hidden'
+    side.className = st.side ? 'hidden shrink-0 flex-col border-r border-black/[.07] lg:flex dark:border-white/10' : 'hidden'
+    side.style.width = `${st.sideW}px`
+    grip.classList.toggle('lg:block', st.side)
+    grip.setAttribute('aria-valuenow', String(st.sideW))
     keepScroll(side, st.side ? tree(false) : '')
     keepScroll(drawer, st.drawer ? `<div class="fixed inset-0 z-50 lg:hidden"><div data-act="drawer:0" class="absolute inset-0 bg-black/30"></div><div class="absolute inset-y-0 left-0 flex w-[19rem] max-w-[85%] flex-col bg-white shadow-2xl dark:bg-zinc-950">${tree(true)}</div></div>` : '')
 
@@ -488,6 +498,40 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     if (e.metaKey || e.ctrlKey || e.altKey || t.closest?.(INTERACTIVE)) return
     if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && st.place.view === 'variant') { e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1) }
     else if (e.key === 'f' && st.place.view === 'variant') act(st.focus ? 'unfocus' : 'focus', '', '')
+  })
+
+  // ---------- resizing the sidebar ----------
+  // The grip sits on the sidebar's edge and is never re-rendered, so a drag survives the
+  // chrome re-rendering under it (status pings, edits).
+  const setSideW = (w: number, save = true) => {
+    st.sideW = Math.round(Math.min(SIDE_MAX, Math.max(SIDE_MIN, w)))
+    side.style.width = `${st.sideW}px`
+    grip.setAttribute('aria-valuenow', String(st.sideW))
+    if (save) localStorage.setItem('proto-side-w', String(st.sideW))
+  }
+  grip.setAttribute('aria-valuemin', String(SIDE_MIN))
+  grip.setAttribute('aria-valuemax', String(SIDE_MAX))
+  grip.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    grip.setPointerCapture(e.pointerId)
+    grip.dataset.dragging = ''
+    document.documentElement.style.cursor = 'col-resize'
+    const left = side.getBoundingClientRect().left
+    const move = (m: PointerEvent) => setSideW(m.clientX - left, false)
+    const end = () => {
+      grip.removeEventListener('pointermove', move)
+      delete grip.dataset.dragging
+      document.documentElement.style.cursor = ''
+      setSideW(st.sideW)
+    }
+    grip.addEventListener('pointermove', move)
+    grip.addEventListener('lostpointercapture', end, { once: true })
+  })
+  grip.addEventListener('dblclick', () => setSideW(SIDE_W))
+  grip.addEventListener('keydown', e => {
+    const d = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0
+    if (d) { e.preventDefault(); setSideW(st.sideW + d) }
   })
 
   // ---------- theme, status, server ----------
