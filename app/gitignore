@@ -1,0 +1,4 @@
+# The parent .prototypes/.gitignore ignores everything for git. These lines undo that
+# for this folder only, so Tailwind (which reads ignore files) still scans the app.
+!*
+!*/

@@ -1,0 +1,11 @@
+/* Only this app's own folders are scanned: the parent .prototypes folder is git-ignored,
+   which would otherwise hide everything here from Tailwind. */
+@import "tailwindcss" source(none);
+@source "../shell";
+@source "../src";
+@import "../src/theme.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+html, body, #app { height: 100%; }
+body { margin: 0; }
