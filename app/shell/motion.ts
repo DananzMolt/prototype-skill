@@ -15,9 +15,10 @@ function paintDock() {
   const el = document.querySelector<HTMLElement>('[data-dock]')
   if (!el) return false
   const full = el.querySelector<HTMLElement>('[data-dock-full]')!
-  const locked = el.dataset.locked === '1' || performance.now() < dock.hold
   const now = performance.now()
-  dock.t = ease(dock.t, locked ? 1 : dock.target, Math.min(600, now - dock.last))
+  const locked = el.dataset.locked === '1' || now < dock.hold
+  const goal = locked ? 1 : dock.target
+  dock.t = ease(dock.t, goal, Math.min(600, now - dock.last))
   dock.last = now
   const e = smooth(Math.min(1, Math.max(0, dock.t)))
   const w = Math.min(full.offsetWidth + 8, innerWidth - 16)
@@ -28,7 +29,8 @@ function paintDock() {
   full.style.opacity = String(Math.max(0, (e - 0.45) / 0.55))
   full.style.transform = `translate(-50%, -50%) scale(${0.92 + 0.08 * e})`
   full.style.pointerEvents = e > 0.6 ? 'auto' : 'none'
-  return true
+  // Frames run only while it moves (or a hold is pending); pointer moves start them again.
+  return Math.abs(goal - dock.t) > 0.002 || now < dock.hold
 }
 
 export function runDock() {
@@ -107,6 +109,7 @@ export function installPointerTracking() {
       const dx = Math.max(0, Math.abs(e.clientX - innerWidth / 2) - half)
       const dy = Math.max(0, innerHeight - 64 - e.clientY)
       dock.target = Math.min(1, Math.max(0, 1 - (Math.hypot(dx, dy) - 12) / 170))
+      runDock()
     }
     const arrows = document.querySelectorAll<HTMLElement>('[data-edge]')
     for (const el of arrows) {
@@ -123,6 +126,7 @@ export function installPointerTracking() {
   })
   document.addEventListener('mouseleave', () => {
     dock.target = 0
+    runDock()
     for (const k in edge.target) edge.target[k] = 0
     runEdges()
     showFocusBtn(false)
@@ -140,6 +144,7 @@ export function installPointerTracking() {
     if (!document.querySelector('[data-dock]') || e.pointerType === 'mouse') return
     if ((e.target as Element).closest('[data-dock]')) { if (dock.t < 0.6) dock.hold = performance.now() + 4000 }
     else if (!(e.target as Element).closest('[data-pop]')) dock.hold = 0
+    runDock()
   })
 }
 

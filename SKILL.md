@@ -183,7 +183,8 @@ Each module is roughly 4 to 30 KB and goes through your tool calls, so snap only
 | The user wants to keep them | `proto keep` (`--off` undoes) |
 | The user wants their links | `proto ls` |
 
-On its own: a server stops after 6 hours with no edits and no open page, and every
+On its own: a server stops after 6 hours with no edits and no open page (30 minutes once every
+prototype in the session is picked or archived), and every
 `proto up` deletes sessions untouched for 14 days unless kept and drops leftover tailnet
 rules (`proto gc` does the same on demand). The user can also Keep or Stop from the session
 menu in the page.

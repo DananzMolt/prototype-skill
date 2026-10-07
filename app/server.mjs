@@ -24,6 +24,18 @@ export function lastEdit(root = dir) {
   return newest
 }
 
+const DECIDED_IDLE = 30 * 60e3
+// True when the session has prototypes and each one is picked or archived.
+export function decided() {
+  const metas = []
+  try {
+    for (const slug of readdirSync(join(dir, 'src', 'protos'))) {
+      try { metas.push(JSON.parse(readFileSync(join(dir, 'src', 'protos', slug, 'meta.ts'), 'utf8').replace(/^[\s\S]*?export default\s*/, '').replace(/;?\s*$/, ''))) } catch { /* not a prototype */ }
+    }
+  } catch { /* none yet */ }
+  return metas.length > 0 && metas.every(m => m.archived || m.picked)
+}
+
 export function prototypeServer(session) {
   let activity = Date.now()
   const status = () => {
@@ -43,7 +55,11 @@ export function prototypeServer(session) {
       // Compared with forward slashes: the watcher's paths and this one differ on Windows.
       const slash = p => p.replaceAll('\\', '/')
       const src = slash(join(dir, 'src'))
-      server.watcher.on('all', (_, path) => { if (slash(path).startsWith(src)) activity = Date.now() })
+      server.watcher.on('all', (_, path) => {
+        if (!slash(path).startsWith(src)) return
+        activity = Date.now()
+        if (slash(path).startsWith(`${src}/protos/`)) server.ws.send({ type: 'custom', event: 'proto:edit', data: { path: slash(path).slice(slash(dir).length - 1) } })
+      })
       server.middlewares.use('/__proto', (req, res) => {
         let body = ''
         req.on('data', c => { body += c })
@@ -57,9 +73,10 @@ export function prototypeServer(session) {
           if (route === '/stop') setTimeout(() => stop('stopped from the page'), 100)
         })
       })
-      // A visible page pings every minute, so "idle" means no edits and nobody looking.
+      // A visible page pings every minute, so "idle" means no edits and nobody looking. Once
+      // every prototype is picked or archived, nothing is left to decide: stop much sooner.
       const idle = (read().idleHours ?? 6) * 3600e3
-      setInterval(() => { if (Date.now() - activity > idle) stop('idle') }, 60e3).unref()
+      setInterval(() => { if (Date.now() - activity > (decided() ? Math.min(idle, DECIDED_IDLE) : idle)) stop(decided() ? 'idle, all decided' : 'idle') }, 60e3).unref()
     },
   }
 }

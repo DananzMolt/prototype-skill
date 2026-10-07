@@ -24,6 +24,7 @@ const SKILL = dirname(dirname(fileURLToPath(import.meta.url)))
 const APP = join(SKILL, 'app')
 const INDEX = join(homedir(), '.prototypes', 'sessions.json')
 const IDLE_HOURS = 6
+const MAX_HEAP_MB = 1024
 const DELETE_DAYS = 14
 const LOCAL_PORTS = [5180, 5279]
 const TAILNET_PORTS = [9500, 9599]
@@ -194,7 +195,9 @@ async function up() {
     s = patchSession(dir, { port, stoppedAt: null, stopReason: null })
     mkdirSync(join(dir, '.proto'), { recursive: true })
     const log = openSync(join(dir, '.proto', 'dev.log'), 'a')
-    const child = spawn(process.execPath, [join(dir, 'node_modules', 'vite', 'bin', 'vite.js')], { cwd: dir, detached: true, windowsHide: true, stdio: ['ignore', log, log] })
+    // A ceiling on the server's JS heap: it idles near 200 MB, so this only stops a runaway,
+    // which exits and is restarted by the next `proto up`.
+    const child = spawn(process.execPath, [`--max-old-space-size=${MAX_HEAP_MB}`, join(dir, 'node_modules', 'vite', 'bin', 'vite.js')], { cwd: dir, detached: true, windowsHide: true, stdio: ['ignore', log, log] })
     child.unref()
     s = patchSession(dir, { pid: child.pid })
     for (let i = 0; i < 60 && !await answers(`http://127.0.0.1:${port}/__proto/status`, 1000); i++) await sleep(250)
