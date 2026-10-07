@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const dir = fileURLToPath(new URL('.', import.meta.url))
 const file = join(dir, 'session.json')
+// Compared with forward slashes: the watcher's paths and these differ on Windows.
+const slash = p => p.replaceAll('\\', '/')
+const stylesheet = slash(join(dir, 'shell', 'shell.css'))
 const read = () => JSON.parse(readFileSync(file, 'utf8'))
 const write = patch => writeFileSync(file, JSON.stringify({ ...read(), ...patch }, null, 2) + '\n')
 
@@ -52,8 +55,6 @@ export function prototypeServer(session) {
   return {
     name: 'prototype-server',
     configureServer(server) {
-      // Compared with forward slashes: the watcher's paths and this one differ on Windows.
-      const slash = p => p.replaceAll('\\', '/')
       const src = slash(join(dir, 'src'))
       server.watcher.on('all', (_, path) => {
         if (!slash(path).startsWith(src)) return
@@ -77,6 +78,18 @@ export function prototypeServer(session) {
       // every prototype is picked or archived, nothing is left to decide: stop much sooner.
       const idle = (read().idleHours ?? 6) * 3600e3
       setInterval(() => { if (Date.now() - activity > (decided() ? Math.min(idle, DECIDED_IDLE) : idle)) stop(decided() ? 'idle, all decided' : 'idle') }, 60e3).unref()
+    },
+    // Tailwind rescans only when a file it has already read changes, and Vite gives it nothing
+    // for a new one, so a new prototype folder's classes stayed missing until a restart. A new
+    // file refreshes the stylesheet, which rescans. A copy that can't take a hot update is only
+    // marked stale, since updating it would reload the page.
+    hotUpdate({ type, modules }) {
+      if (type !== 'create') return
+      const graph = this.environment.moduleGraph
+      const sheets = [...graph.getModulesByFile(stylesheet) ?? []]
+      for (const m of sheets) if (!m.isSelfAccepting) graph.invalidateModule(m)
+      const live = sheets.filter(m => m.isSelfAccepting)
+      if (live.length) return [...modules, ...live]
     },
   }
 }
