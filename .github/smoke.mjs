@@ -40,7 +40,14 @@ if (!local || !await answers(`${local}__proto/status`)) fail(`the server does no
 const { pid } = JSON.parse(readFileSync(join(app, 'session.json'), 'utf8'))
 
 // The stylesheet as served, read once before any prototype folder exists.
-const css = async () => (await fetch(`${local}shell/shell.css?direct`)).text()
+const css = async () => {
+  try {
+    const r = await fetch(`${local}shell/shell.css?direct`)
+    const text = await r.text()
+    if (!r.ok) fail(`the stylesheet answered ${r.status}: ${text.slice(0, 400)}`)
+    return text
+  } catch (e) { fail(`could not read the stylesheet: ${e.cause?.message ?? e.message}`) }
+}
 await css()
 
 proto(['add', 'home', '--title', 'Home page', '--ask', 'Two takes on the home page', '--variants', 'A:Classic,B:Big price'])
