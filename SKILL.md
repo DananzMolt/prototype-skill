@@ -114,7 +114,7 @@ it, and a ⋯ on the variant's row offers Autoplay, All states and Compare:
   `data-shoot` attributes `proto shoot --click` uses. Every variant that has the state answers
   to the same selectors; a state only some variants have lists them in `only`.
 - A state's `about`: the first variant's note says what the state is; the others say only what
-  changed (shown in amber). No note means unchanged.
+  changed, or what it is when only they have it (both shown in amber). No note means unchanged.
 - Put `data-diff` on what a variant adds; Compare outlines it.
 - `proto add`, `pick` and `archive` keep these fields; edit `meta.ts` after `proto add`.
 
