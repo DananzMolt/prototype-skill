@@ -46,7 +46,13 @@ const css = async () => {
     const text = await r.text()
     if (!r.ok) fail(`the stylesheet answered ${r.status}: ${text.slice(0, 400)}`)
     return text
-  } catch (e) { fail(`could not read the stylesheet: ${e.cause?.message ?? e.message}`) }
+  } catch (e) {
+    let alive = true
+    try { process.kill(pid, 0) } catch { alive = false }
+    await new Promise(r => setTimeout(r, 2000))
+    const status = await fetch(`${local}__proto/status`).then(r => r.status, x => x.cause?.message ?? x.message)
+    fail(`could not read the stylesheet: ${e.cause?.message ?? e.message} (server ${alive ? 'alive' : 'gone'}, status ${status})`)
+  }
 }
 await css()
 
@@ -88,7 +94,7 @@ export default function A() {
 `)
 // A class in a prototype folder made while the server runs reaches the stylesheet.
 let styled = false
-for (let i = 0; i < 40 && !(styled = (await css()).includes('4321px')); i++) await new Promise(r => setTimeout(r, 250))
+for (let i = 0; i < 40 && !(styled = (await css()).includes('4321px')); i++) { console.log(`poll ${i}`); await new Promise(r => setTimeout(r, 250)) }
 if (!styled) fail('a class in a new prototype folder never reached the stylesheet')
 const stateOut = proto(['shoot', 'hero/A/open', 'hero/A/gone'])
 if (!pngs(shots).includes('hero-A-open-desktop.png')) fail('no hero-A-open-desktop.png')
