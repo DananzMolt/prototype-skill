@@ -3,6 +3,7 @@
 // listed in meta.ts, then stop and delete the session. Run by .github/workflows/smoke.yml on Windows, Linux and macOS.
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { get } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,21 +40,13 @@ const local = (out.match(/^local (\S+)/m) || out.match(/^url (\S+)/m) || [])[1]
 if (!local || !await answers(`${local}__proto/status`)) fail(`the server does not answer at ${local}`)
 const { pid } = JSON.parse(readFileSync(join(app, 'session.json'), 'utf8'))
 
-// The stylesheet as served, read once before any prototype folder exists.
-const css = async () => {
-  try {
-    const r = await fetch(`${local}shell/shell.css?direct`)
-    const text = await r.text()
-    if (!r.ok) fail(`the stylesheet answered ${r.status}: ${text.slice(0, 400)}`)
-    return text
-  } catch (e) {
-    let alive = true
-    try { process.kill(pid, 0) } catch { alive = false }
-    await new Promise(r => setTimeout(r, 2000))
-    const status = await fetch(`${local}__proto/status`).then(r => r.status, x => x.cause?.message ?? x.message)
-    fail(`could not read the stylesheet: ${e.cause?.message ?? e.message} (server ${alive ? 'alive' : 'gone'}, status ${status})`)
-  }
-}
+// The stylesheet as served, read once before any prototype folder exists. Each read opens
+// its own connection: the spawnSync calls block this script for many seconds, long enough for
+// the server to close an idle kept-alive socket without fetch noticing.
+const css = () => new Promise(ok => get(`${local}shell/shell.css?direct`, { agent: false }, r => {
+  let text = ''
+  r.setEncoding('utf8').on('data', c => { text += c }).on('end', () => r.statusCode === 200 ? ok(text) : fail(`the stylesheet answered ${r.statusCode}: ${text.slice(0, 400)}`))
+}).on('error', e => fail(`could not read the stylesheet: ${e.message}`)))
 await css()
 
 proto(['add', 'home', '--title', 'Home page', '--ask', 'Two takes on the home page', '--variants', 'A:Classic,B:Big price'])
@@ -94,7 +87,7 @@ export default function A() {
 `)
 // A class in a prototype folder made while the server runs reaches the stylesheet.
 let styled = false
-for (let i = 0; i < 40 && !(styled = (await css()).includes('4321px')); i++) { console.log(`poll ${i}`); await new Promise(r => setTimeout(r, 250)) }
+for (let i = 0; i < 40 && !(styled = (await css()).includes('4321px')); i++) await new Promise(r => setTimeout(r, 250))
 if (!styled) fail('a class in a new prototype folder never reached the stylesheet')
 const stateOut = proto(['shoot', 'hero/A/open', 'hero/A/gone'])
 if (!pngs(shots).includes('hero-A-open-desktop.png')) fail('no hero-A-open-desktop.png')

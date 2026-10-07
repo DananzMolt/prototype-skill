@@ -81,8 +81,8 @@ export function prototypeServer(session) {
     },
     // Tailwind rescans only when a file it has already read changes, and Vite gives it nothing
     // for a new one, so a new prototype folder's classes stayed missing until a restart. A new
-    // file refreshes the stylesheet, which rescans. The page's copy gets a hot update; a copy
-    // nothing imports (?direct) is only marked stale, since updating it would reload the page.
+    // file refreshes the stylesheet, which rescans. A copy that can't take a hot update is only
+    // marked stale, since updating it would reload the page.
     hotUpdate({ type, modules }) {
       if (type !== 'create') return
       const graph = this.environment.moduleGraph
