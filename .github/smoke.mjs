@@ -39,6 +39,10 @@ const local = (out.match(/^local (\S+)/m) || out.match(/^url (\S+)/m) || [])[1]
 if (!local || !await answers(`${local}__proto/status`)) fail(`the server does not answer at ${local}`)
 const { pid } = JSON.parse(readFileSync(join(app, 'session.json'), 'utf8'))
 
+// The stylesheet as served, read once before any prototype folder exists.
+const css = async () => (await fetch(`${local}shell/shell.css?direct`)).text()
+await css()
+
 proto(['add', 'home', '--title', 'Home page', '--ask', 'Two takes on the home page', '--variants', 'A:Classic,B:Big price'])
 proto(['add', 'hero', '--title', 'Hero section', '--ask', 'The hero from B, further', '--from', 'home/B', '--variants', 'A:Price only,B:Fuel tabs'])
 proto(['add', 'home', '--from', 'hero/A'], { ok: false })
@@ -72,9 +76,13 @@ writeFileSync(heroMeta, metaSrc.slice(0, at) + ' ' + JSON.stringify({
 writeFileSync(join(app, 'src', 'protos', 'hero', 'A.tsx'), `import { useState } from 'react'
 export default function A() {
   const [open, setOpen] = useState(false)
-  return <div className="h-full p-8"><button data-shoot="open" onClick={() => setOpen(true)}>Open</button>{open && <p>Panel</p>}</div>
+  return <div className="h-full w-[4321px] p-8"><button data-shoot="open" onClick={() => setOpen(true)}>Open</button>{open && <p>Panel</p>}</div>
 }
 `)
+// A class in a prototype folder made while the server runs reaches the stylesheet.
+let styled = false
+for (let i = 0; i < 40 && !(styled = (await css()).includes('4321px')); i++) await new Promise(r => setTimeout(r, 250))
+if (!styled) fail('a class in a new prototype folder never reached the stylesheet')
 const stateOut = proto(['shoot', 'hero/A/open', 'hero/A/gone'])
 if (!pngs(shots).includes('hero-A-open-desktop.png')) fail('no hero-A-open-desktop.png')
 if (/nothing matches \[data-shoot=open\]/.test(stateOut)) fail('the state hero/A/open did not open')
