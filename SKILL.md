@@ -91,17 +91,46 @@ so the user sees them land:
   still turns dark, which is expected).
 - Small helpers can go in the same folder under lowercase names (`parts.tsx`).
 
+**Show what's behind the clicks.** Whenever a variant has states a reviewer would otherwise
+have to find (a menu, a drawer, a step, an empty state, anything one variant adds), list them in
+`meta.ts` next to `variants`. The sidebar then shows each variant's line and its states under
+it, and a ⋯ on the variant's row offers Autoplay, All states and Compare:
+
+```
+"about": {
+  "A": "The baseline. Every action is one menu deep.",
+  "B": "Looks the same as A at rest. Adds shortcuts inside."
+},
+"states": [
+  { "id": "row-menu", "name": "Row menu", "click": ["[data-shoot=row-menu]"],
+    "about": { "A": "Remind, download, mark paid or delete.", "B": "Adds Duplicate and Record payment." } },
+  { "id": "payments", "name": "Payments", "click": ["[data-shoot=row]", "[data-shoot=payments]"], "only": ["B"],
+    "about": { "B": "What is still owed, and when it was paid." } }
+]
+```
+
+- `about` per variant: one line on what it is (the first variant) or how it differs from it.
+- `click` is the selectors clicked in order, from rest, inside the variant: the same
+  `data-shoot` attributes `proto shoot --click` uses. Every variant that has the state answers
+  to the same selectors; a state only some variants have lists them in `only`.
+- A state's `about`: the first variant's note says what the state is; the others say only what
+  changed, or what it is when only they have it (both shown in amber). No note means unchanged.
+- Put `data-diff` on what a variant adds; Compare outlines it.
+- `proto add`, `pick` and `archive` keep these fields; edit `meta.ts` after `proto add`.
+
 ## 5. Look at it, then iterate
 
 ```
 proto shoot <slug> <slug>/A <slug>/B …          # lobby plus each variant, desktop and phone
 proto shoot <slug>/A --theme=dark               # dark mode
+proto shoot <slug>/B/row-menu                   # a state listed in meta.ts
 proto shoot <slug>/B --click "[data-shoot=add]" # a state reached by clicking (repeatable)
 ```
 
 It prints absolute PNG paths (in the app's `.proto/shots/`). Phone shots are the whole page
 at 390×844, shell bars included. For states behind an interaction, put `data-shoot="…"` on the
-elements and pass one `--click` per step. Read every screenshot. For each
+elements and list the state in `meta.ts`, or pass one `--click` per step. If a state's clicks
+match nothing, `proto shoot` says so. Read every screenshot. For each
 variant, note what breaks: alignment, hierarchy, clipped text, overflow on the phone shot,
 weak affordance, too many steps. Fix it and push each variant further in its own direction
 instead of letting them converge. Do 2 rounds unless the user asked for more, and shoot again

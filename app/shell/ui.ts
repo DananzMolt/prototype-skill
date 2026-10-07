@@ -20,6 +20,10 @@ const PATHS: Record<string, string> = {
   from: 'M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
   dots: 'M5 12h.01M12 12h.01M19 12h.01',
   x: 'M6 6l12 12M18 6 6 18',
+  play: 'M8 5v14l11-7z',
+  pause: 'M8 5v14M16 5v14',
+  replay: 'M4 12a8 8 0 1 0 2.5-5.8M4 4v4h4',
+  diff: 'M7 4v16M17 4v16M4 8h6M14 16h6',
 }
 
 export const ic = (name: string, cls = 'size-4') =>

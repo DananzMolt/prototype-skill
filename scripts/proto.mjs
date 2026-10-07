@@ -4,7 +4,7 @@
 //   proto up [--name "Session name"] [--stack react|vue]   create or restart, print the URL
 //   proto add <slug> --title "…" --variants "A:Name,B:Name" [--ask "…"] [--kind phone]
 //             [--from <slug>/<letter>]   built from that variant: nested under it in the page
-//   proto shoot [route…] [--theme dark] [--focus] [--click <css>]  screenshots, e.g. hero/A hero
+//   proto shoot [route…] [--theme dark] [--focus] [--click <css>]  screenshots, e.g. hero hero/A hero/A/open
 //   proto snap <slug>[/<letter>]… [--width 672]   static HTML snapshots for a Claude Doc
 //   proto pick <slug> <letter> [--off]   the user chose this variant: marked in the page
 //   proto archive <slug> [--off]    proto keep [--off]      proto url    proto stack

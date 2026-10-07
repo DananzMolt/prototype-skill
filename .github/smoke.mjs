@@ -1,6 +1,6 @@
 // End-to-end check of the skill on this machine: create a session app in a scratch project,
-// add two prototypes (one built from the other), screenshot and snapshot them, then stop and
-// delete the session. Run by .github/workflows/smoke.yml on Windows, Linux and macOS.
+// add two prototypes (one built from the other), screenshot and snapshot them, open a state
+// listed in meta.ts, then stop and delete the session. Run by .github/workflows/smoke.yml on Windows, Linux and macOS.
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -29,7 +29,7 @@ const proto = (args, { ok = true } = {}) => {
   process.stderr.write(r.stderr || '')
   if (ok && r.status !== 0) fail(`proto ${args[0]} exited ${r.status}`)
   if (!ok && r.status === 0) fail(`proto ${args.join(' ')} should have been refused`)
-  return r.stdout || ''
+  return (r.stdout || '') + (r.stderr || '')
 }
 const answers = async url => { try { return (await fetch(url, { signal: AbortSignal.timeout(2000) })).ok } catch { return false } }
 const pngs = dir => existsSync(dir) ? readdirSync(dir).filter(f => f.endsWith('.png')) : []
@@ -57,6 +57,28 @@ for (const want of ['session-desktop.png', 'hero-mobile.png', 'hero-A-desktop.pn
   if (!made.includes(want)) fail(`no ${want} (made: ${made.join(', ') || 'none'})`)
   if (statSync(join(shots, want)).size < 10_000) fail(`${want} looks empty`)
 }
+// A state listed in meta.ts opens by its clicks; one whose clicks match nothing says so.
+const heroMeta = join(app, 'src', 'protos', 'hero', 'meta.ts')
+const metaSrc = readFileSync(heroMeta, 'utf8')
+const at = metaSrc.indexOf('export default') + 'export default'.length
+writeFileSync(heroMeta, metaSrc.slice(0, at) + ' ' + JSON.stringify({
+  ...JSON.parse(metaSrc.slice(at)),
+  about: { A: 'Price only.' },
+  states: [
+    { id: 'open', name: 'Panel', click: ['[data-shoot=open]'], about: { A: 'The panel, open.' } },
+    { id: 'gone', name: 'Missing', click: ['[data-shoot=missing]'] },
+  ],
+}, null, 2) + '\n')
+writeFileSync(join(app, 'src', 'protos', 'hero', 'A.tsx'), `import { useState } from 'react'
+export default function A() {
+  const [open, setOpen] = useState(false)
+  return <div className="h-full p-8"><button data-shoot="open" onClick={() => setOpen(true)}>Open</button>{open && <p>Panel</p>}</div>
+}
+`)
+const stateOut = proto(['shoot', 'hero/A/open', 'hero/A/gone'])
+if (!pngs(shots).includes('hero-A-open-desktop.png')) fail('no hero-A-open-desktop.png')
+if (/nothing matches \[data-shoot=open\]/.test(stateOut)) fail('the state hero/A/open did not open')
+if (!/nothing matches \[data-shoot=missing\]/.test(stateOut)) fail('proto shoot did not report the state whose clicks match nothing')
 cpSync(shots, keepShots, { recursive: true })
 
 proto(['snap', 'hero/A'])
