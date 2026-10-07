@@ -11,17 +11,68 @@ import { ic, esc, ON, TAB_ON, TAB_OFF, IB, SEP, pulse, pop, item, ago, clock } f
 import { dock, edge, smooth, runDock, restoreEdgeLabels, stageHover, canHover, installPointerTracking, fadeOut } from './motion'
 
 export type Variant = { id: string; name: string; file: string; load: () => Promise<unknown> }
-export type Proto = { id: string; title: string; ask: string; kind: 'web' | 'phone'; created: string; archived: boolean; from?: { proto: string; variant: string }; picked?: string; variants: Variant[] }
+/** Something behind clicks in a prototype's variants (a menu, a drawer, a dialog), reached by
+ *  clicking its selectors in order. about: one line per variant; only: the variants that have it. */
+export type State = { id: string; name: string; click: string[]; about?: Record<string, string>; only?: string[] }
+export type Proto = { id: string; title: string; ask: string; kind: 'web' | 'phone'; created: string; archived: boolean; from?: { proto: string; variant: string }; picked?: string; about: Record<string, string>; states: State[]; variants: Variant[] }
 export type Session = { id: string; name: string; path: string; createdAt: string; url?: string; localUrl?: string }
 type Mount = (el: HTMLElement, component: any) => () => void
-type Place = { view: 'session' } | { view: 'proto'; proto: string } | { view: 'variant'; proto: string; variant: string }
-type Layer = { el: HTMLElement; refs: unknown[]; dispose: () => void }
+// A variant can be shown in one of its states, or through a tool: all its states at once
+// (all), playing through them (play), or next to another variant (compare).
+type Tool = 'play' | 'all' | 'compare'
+type Place = { view: 'session' } | { view: 'proto'; proto: string } | { view: 'variant'; proto: string; variant: string; state?: string; tool?: Tool }
+type Layer = { el: HTMLElement; refs: unknown[]; ready: Promise<unknown>; dispose: () => void; player?: { toggle: () => void; jump: (i: number) => void } }
 type Status = { lastEdit: number; keep: boolean; idleHours: number; deleteDays: number }
 
 const PHONE = 'shrink-0 overflow-hidden rounded-[55px] border-[10px] border-zinc-900 bg-white text-zinc-900 shadow-xl dark:border-zinc-700 dark:bg-black dark:text-white'
 // The sidebar's width: dragged between these, double-click resets it.
 const SIDE_W = 288, SIDE_MIN = 200, SIDE_MAX = 480
 const INTERACTIVE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="slider"], [role="listbox"], [role="menu"]'
+const TOOLS: Record<Tool, { name: string; icon: string; hint: string }> = {
+  play: { name: 'Autoplay', icon: 'play', hint: 'Clicks through every state for you' },
+  all: { name: 'All states', icon: 'grid', hint: 'Every state on one page' },
+  compare: { name: 'Compare', icon: 'diff', hint: 'Side by side, in the same state' },
+}
+
+// ---------- reaching a state: click its selectors inside the design, in order ----------
+const frame = () => new Promise(r => requestAnimationFrame(r))
+const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
+async function until<T>(get: () => T | null | undefined, ms: number): Promise<T | null> {
+  const end = performance.now() + ms
+  for (;;) {
+    let x: T | null | undefined = null
+    try { x = get() } catch { /* a bad selector: treated as not found */ }
+    if (x) return x
+    if (performance.now() > end) return null
+    await frame()
+  }
+}
+// The whole sequence a real click makes, so menus that open on pointerdown open too. Dispatched
+// events reach the design's own handlers even inside an inert preview.
+function press(el: Element) {
+  const o = { bubbles: true, cancelable: true, composed: true, view: window, button: 0 }
+  const ptr = { ...o, pointerId: 1, isPrimary: true, pointerType: 'mouse' }
+  el.dispatchEvent(new PointerEvent('pointerdown', ptr))
+  el.dispatchEvent(new MouseEvent('mousedown', o))
+  el.dispatchEvent(new PointerEvent('pointerup', ptr))
+  el.dispatchEvent(new MouseEvent('mouseup', o))
+  el.dispatchEvent(new MouseEvent('click', o))
+}
+/** Clicks each selector inside the host; returns the first one that matched nothing. */
+async function replay(host: HTMLElement, steps: string[], alive: () => boolean, each?: (el: Element) => Promise<void>) {
+  if (!await until(() => host.firstElementChild, 3000)) return steps[0] ?? null
+  await frame(); await frame()
+  for (const sel of steps) {
+    const el = await until(() => host.querySelector(sel), 1500)
+    if (!alive()) return null
+    if (!el) return sel
+    if (each) await each(el)
+    if (!alive()) return null
+    press(el)
+    await frame(); await frame(); await wait(30)
+  }
+  return null
+}
 
 export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Proto[]; session: Session }) {
   const { mount } = opts
@@ -47,6 +98,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     lastEdit: 0,
     editing: null as null | { proto: string; variant: string },
     status: null as Status | null,
+    vs: new Map<string, string>(),
+    playing: '' as string,
   }
 
   // ---------- data helpers ----------
@@ -55,16 +108,42 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const byId = (id: string) => protos.find(p => p.id === id)
   const editing = (p: string, v?: string) => !!st.editing && st.editing.proto === p && (!v || st.editing.variant === v)
   const cur = () => (st.place.view === 'session' ? undefined : byId(st.place.proto))
-  const hashOf = (p: Place) => p.view === 'session' ? '#/' : p.view === 'proto' ? `#/${p.proto}` : `#/${p.proto}/${p.variant}`
+  // States: those a variant has, the one a place points at, and whether a variant's note says
+  // something changed. The first variant is the reference: its notes describe each state, the
+  // others' notes say what they change, and a state they leave out is the same as there.
+  const statesOf = (p: Proto, v: string) => p.states.filter(s => !s.only?.length || s.only.includes(v))
+  const stateOf = (p: Proto, v: string, id?: string) => (id ? statesOf(p, v).find(s => s.id === id) : undefined)
+  const refOf = (p: Proto) => p.variants[0]?.id ?? ''
+  const changed = (p: Proto, v: string, s: State) => v !== refOf(p) && !!s.about?.[v]
+  const toolOk = (p: Proto, v: string, t?: Tool) => !t || (t === 'compare' ? p.variants.length > 1 : statesOf(p, v).length > 0)
+  const hashOf = (p: Place) => p.view === 'session' ? '#/' : p.view === 'proto' ? `#/${p.proto}` : `#/${p.proto}/${p.variant}${p.tool ? `/~${p.tool}` : ''}${p.state ? `/${encodeURIComponent(p.state)}` : ''}`
   const valid = (p: Place): boolean => {
     if (p.view === 'session') return true
     const proto = byId(p.proto)
-    return !!proto && (p.view === 'proto' || proto.variants.some(v => v.id === p.variant))
+    if (!proto) return false
+    if (p.view === 'proto') return true
+    return proto.variants.some(v => v.id === p.variant) && (!p.state || !!stateOf(proto, p.variant, p.state)) && toolOk(proto, p.variant, p.tool)
   }
   const parseHash = (hash = location.hash): Place | null => {
-    const [proto, variant] = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent)
+    const [proto, variant, a, b] = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent)
+    const tool = a?.startsWith('~') ? a.slice(1) as Tool : undefined
+    const state = tool ? b : a
     const p: Place = !proto ? { view: 'session' } : !variant ? { view: 'proto', proto } : { view: 'variant', proto, variant }
-    return hash && valid(p) ? p : null
+    if (!hash || !valid(p)) return null
+    // A state or tool that isn't there (renamed, removed) falls back to the variant at rest.
+    if (p.view === 'variant') {
+      const q = byId(proto)!
+      if (state && stateOf(q, variant, state)) p.state = state
+      if (tool && TOOLS[tool] && toolOk(q, variant, tool)) p.tool = tool
+    }
+    return p
+  }
+  /** Moving to another variant keeps the state and tool, where that variant has them. */
+  const keepIn = (proto: Proto, variant: string): Place => {
+    const here = st.place.view === 'variant' && st.place.proto === proto.id ? st.place : null
+    const state = here?.state && stateOf(proto, variant, here.state) ? here.state : undefined
+    const tool = here?.tool && toolOk(proto, variant, here.tool) ? here.tool : undefined
+    return { view: 'variant', proto: proto.id, variant, ...(state ? { state } : {}), ...(tool ? { tool } : {}) }
   }
   const defaultPlace = (): Place => {
     const newest = active().at(-1)
@@ -133,7 +212,14 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const proto = byId(p.proto)!
     if (p.view === 'proto') return [st.stack, nestKey(), proto.title, proto.kind, ...lobbyOrder(proto).flatMap(v => [v.id, v.name, v.file])]
     const v = proto.variants.find(v => v.id === p.variant)!
-    return [proto.kind, v.file]
+    return [proto.kind, v.file, p.state, p.tool, p.tool === 'compare' ? otherOf(proto, v.id) : '', JSON.stringify(proto.states), ...(p.tool === 'compare' ? proto.variants.map(x => x.file) : [])]
+  }
+  // What a variant is compared with: the one chosen, else the reference (else the next one).
+  const otherOf = (p: Proto, v: string) => {
+    const want = st.vs.get(p.id)
+    if (want && want !== v && p.variants.some(x => x.id === want)) return want
+    const ref = refOf(p)
+    return ref !== v ? ref : p.variants.find(x => x.id !== v)?.id ?? v
   }
 
   // ---------- loading designs ----------
@@ -163,6 +249,10 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
 
   const thumb = (proto: Proto, aspect: string) => `<div data-thumb class="relative w-full overflow-hidden bg-white dark:bg-zinc-950 ${aspect}"><div inert class="pointer-events-none overflow-hidden ${proto.kind === 'phone' ? 'flex items-center justify-center bg-zinc-100 dark:bg-zinc-900' : ''} [contain:layout_paint]" style="width:1200px;height:750px">${proto.kind === 'phone' ? `<div class="${PHONE}" style="width:393px;height:852px;zoom:.78"><div data-mount class="h-full overflow-hidden"></div></div>` : '<div data-mount class="h-full"></div>'}</div></div>`
 
+  const frameOf = (proto: Proto) => proto.kind === 'phone'
+    ? `<div data-phones class="flex min-h-full items-center justify-center p-6"><div data-phone class="${PHONE} [contain:layout_paint]" style="width:393px;height:852px"><div data-mount class="h-full overflow-y-auto"></div></div></div>`
+    : '<div data-mount class="h-full"></div>'
+
   function buildLayer(p: Place): Layer {
     // The outer box doesn't scroll and is the containing block for the design's own
     // position:fixed (drawers, sheets, toasts), so they stay on the stage, pinned, instead
@@ -173,12 +263,25 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     // near the screen, so a long grid or the full-size list costs what is visible, not all of it.
     const live = new Map<HTMLElement, () => void>()
     let gone = false
-    const start = (host: HTMLElement, v: Variant) => {
-      if (live.has(host)) return
+    const pending: Promise<unknown>[] = []
+    // A state that can't be reached says so where it would have been, instead of quietly
+    // showing the design at rest.
+    const missed = (host: HTMLElement, s: State, sel: string) => {
+      console.warn(`[prototype] can't open "${s.name}": nothing matches ${sel}`)
+      const box = host.closest<HTMLElement>('[data-chipbox]') ?? el
+      box.insertAdjacentHTML('beforeend', `<div data-missed class="pointer-events-none absolute left-3 top-3 z-20 max-w-[calc(100%-1.5rem)] rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow ring-1 ring-amber-500/30 dark:bg-amber-950 dark:text-amber-100">Couldn’t open <b>${esc(s.name)}</b>: nothing matches <code>${esc(sel)}</code></div>`)
+    }
+    const start = (host: HTMLElement, v: Variant, s?: State): Promise<unknown> => {
+      if (live.has(host)) return Promise.resolve()
       live.set(host, () => {})
-      load(v).then(
-        c => { if (!gone && live.has(host)) live.set(host, mount(host, c)) },
-        e => { if (!gone && live.has(host)) host.innerHTML = `<pre class="m-4 whitespace-pre-wrap rounded-lg bg-rose-50 p-4 text-xs text-rose-700 dark:bg-rose-950 dark:text-rose-200">${esc(e?.stack || e)}</pre>` })
+      const here = () => !gone && live.has(host)
+      return load(v).then(
+        c => {
+          if (!here()) return
+          live.set(host, mount(host, c))
+          if (s?.click.length) return replay(host, s.click, here).then(miss => { if (miss && here()) missed(host, s, miss) })
+        },
+        e => { if (here()) host.innerHTML = `<pre class="m-4 whitespace-pre-wrap rounded-lg bg-rose-50 p-4 text-xs text-rose-700 dark:bg-rose-950 dark:text-rose-200">${esc(e?.stack || e)}</pre>` })
     }
     const stop = (host: HTMLElement) => {
       const off = live.get(host)
@@ -188,25 +291,155 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       host.replaceChildren()
     }
     let io: IntersectionObserver | null = null
-    const mountAll = (list: Variant[], lazy: boolean) => {
+    type Show = { v: Variant; s?: State }
+    const mountAll = (list: Show[], lazy: boolean) => {
       const hosts = [...el.querySelectorAll<HTMLElement>('[data-mount]')]
       const of = new Map(hosts.map((h, i) => [h, list[i]]))
-      if (!lazy) return hosts.forEach(h => start(h, of.get(h)!))
-      io = new IntersectionObserver(entries => { for (const e of entries) e.isIntersecting ? start(e.target as HTMLElement, of.get(e.target as HTMLElement)!) : stop(e.target as HTMLElement) }, { root: el.firstElementChild, rootMargin: '600px 0px' })
+      if (!lazy) return hosts.forEach(h => pending.push(start(h, of.get(h)!.v, of.get(h)!.s)))
+      io = new IntersectionObserver(entries => {
+        for (const e of entries) { const h = e.target as HTMLElement, x = of.get(h)!; e.isIntersecting ? start(h, x.v, x.s) : stop(h) }
+      }, { root: el.firstElementChild, rootMargin: '600px 0px' })
       hosts.forEach(h => io!.observe(h))
     }
-    let inner = ''
+    let player: Layer['player']
+    let quit = () => {}
     if (p.view === 'variant') {
-      const proto = byId(p.proto)!
-      inner = proto.kind === 'phone'
-        ? `<div data-phones class="flex min-h-full items-center justify-center p-6"><div data-phone class="${PHONE} [contain:layout_paint]" style="width:393px;height:852px"><div data-mount class="h-full overflow-y-auto"></div></div></div>`
-        : '<div data-mount class="h-full"></div>'
-    } else inner = p.view === 'proto' ? protoLobby(byId(p.proto)!) : sessionLobby()
-    el.innerHTML = `<div class="h-full overflow-auto">${inner}</div>`
-    if (p.view === 'variant') { const proto = byId(p.proto)!; mountAll([proto.variants.find(v => v.id === p.variant)!], false) }
-    else if (p.view === 'proto') mountAll(lobbyOrder(byId(p.proto)!), true)
-    else mountAll(lobbyRoots().flatMap(q => lobbyOrder(q).slice(0, 1)), true)
-    return { el, refs: refsFor(p), dispose: () => { gone = true; io?.disconnect(); [...live.keys()].forEach(stop) } }
+      const proto = byId(p.proto)!, v = proto.variants.find(x => x.id === p.variant)!, s = stateOf(proto, v.id, p.state)
+      if (p.tool === 'all') {
+        el.innerHTML = `<div class="h-full overflow-auto">${allStates(proto, v)}</div>`
+        mountAll([{ v }, ...statesOf(proto, v.id).map(s => ({ v, s }))], true)
+      } else if (p.tool === 'compare') {
+        const o = proto.variants.find(x => x.id === otherOf(proto, v.id))!
+        const pair = [o, v].sort((a, b) => proto.variants.indexOf(a) - proto.variants.indexOf(b))
+        el.innerHTML = compareView(proto, v, o, s, pair)
+        mountAll(pair.map(x => ({ v: x, s: stateOf(proto, x.id, p.state) })), false)
+      } else if (p.tool === 'play') {
+        el.innerHTML = playView(proto, v)
+        ;({ player, quit } = autoplay(proto, v))
+      } else {
+        el.innerHTML = `<div class="h-full overflow-auto">${frameOf(proto)}</div>`
+        mountAll([{ v, s }], false)
+      }
+    } else {
+      el.innerHTML = `<div class="h-full overflow-auto">${p.view === 'proto' ? protoLobby(byId(p.proto)!) : sessionLobby()}</div>`
+      if (p.view === 'proto') mountAll(lobbyOrder(byId(p.proto)!).map(v => ({ v })), true)
+      else mountAll(lobbyRoots().flatMap(q => lobbyOrder(q).slice(0, 1)).map(v => ({ v })), true)
+    }
+
+    // ---------- autoplay: a cursor clicks through each state while a timeline fills ----------
+    function autoplay(proto: Proto, v: Variant) {
+      const MOVE = 800, HOLD = 2200
+      const list = statesOf(proto, v.id)
+      const host = el.querySelector<HTMLElement>('[data-mount]')!, box = el.querySelector<HTMLElement>('[data-play-box]')!
+      const cursor = el.querySelector<HTMLElement>('[data-cursor]')!
+      let at = 0, playing = false, done = false, run = 0, fill: Animation | null = null
+      const paint = () => {
+        const s = list[at]
+        el.querySelector('[data-play-label]')!.textContent = `${at + 1}/${list.length} · ${s.name}`
+        el.querySelector('[data-play-note]')!.textContent = s.about?.[v.id] ?? ''
+        el.querySelector('[data-play-btn]')!.innerHTML = `${ic(playing ? 'pause' : done ? 'replay' : 'play', 'size-4')}${playing ? '' : `<span>${done ? 'Again' : 'Play'}</span>`}`
+        el.querySelector('[data-play-btn]')!.setAttribute('aria-label', playing ? 'Pause' : 'Play')
+        el.querySelectorAll<HTMLElement>('[data-seg]').forEach((b, i) => { if (i !== at || !playing) b.style.width = i < at || done || (i === at && !playing) ? '100%' : '0%' })
+        if (st.playing !== s.id) { st.playing = s.id; render() }
+      }
+      const point = (x: number, y: number) => { cursor.hidden = false; cursor.style.transform = `translate(${x}px, ${y}px)` }
+      // One state: start the design fresh, then click through to the state, the cursor leading.
+      async function reach(i: number, glide: boolean, my: number) {
+        at = i
+        paint()
+        stop(host)
+        await start(host, v)
+        if (my !== run || gone) return
+        const s = list[i]
+        const miss = await replay(host, s.click, () => my === run && !gone, glide ? async target => {
+          const b = target.getBoundingClientRect(), o = box.getBoundingClientRect()
+          point(b.left - o.left + Math.min(b.width / 2, 48), b.top - o.top + b.height / 2)
+          await wait(MOVE)
+          cursor.querySelector('[data-ripple]')?.animate([{ transform: 'scale(.4)', opacity: .8 }, { transform: 'scale(1.6)', opacity: 0 }], { duration: 450, easing: 'ease-out' })
+        } : undefined)
+        if (miss && my === run) missed(host, s, miss)
+      }
+      async function loop(my: number) {
+        for (let i = at; i < list.length; i++) {
+          fill?.cancel()
+          fill = el.querySelector<HTMLElement>(`[data-seg="${i}"]`)!.animate([{ width: '0%' }, { width: '100%' }], { duration: MOVE * list[i].click.length + HOLD + 400, fill: 'forwards' })
+          await reach(i, true, my)
+          if (my !== run || gone) return
+          await wait(HOLD)
+          if (my !== run || gone) return
+        }
+        playing = false; done = true; paint()
+      }
+      const play = () => { if (done) { done = false; at = 0 } run++; playing = true; paint(); loop(run) }
+      const pause = () => { run++; playing = false; fill?.pause(); paint() }
+      box.addEventListener('pointerdown', e => { if (e.isTrusted && playing) pause() }, true)
+      pending.push(start(host, v))
+      cursor.style.transition = 'none'
+      cursor.style.transform = `translate(${box.clientWidth * 0.6}px, ${box.clientHeight * 0.75}px)`
+      requestAnimationFrame(() => { cursor.style.transition = '' })
+      const first = setTimeout(play, 700)
+      paint()
+      return {
+        player: { toggle: () => (playing ? pause() : play()), jump: (i: number) => { run++; playing = false; done = false; fill?.cancel(); reach(i, false, run).then(paint) } },
+        quit: () => { clearTimeout(first); run++; st.playing = '' },
+      }
+    }
+
+    const ready = Promise.all(pending)
+    return { el, refs: refsFor(p), ready, player, dispose: () => { gone = true; quit(); io?.disconnect(); [...live.keys()].forEach(stop) } }
+  }
+
+  // ---------- the tools' views ----------
+  const dot = (proto: Proto, v: string, s?: State, on = false) => `<span class="mt-[5px] size-1.5 shrink-0 rounded-full ${s && changed(proto, v, s) ? 'bg-amber-500' : on ? 'bg-zinc-900 dark:bg-white' : 'bg-zinc-300 dark:bg-zinc-600'}"></span>`
+  const noteCls = (proto: Proto, v: string, s: State) => changed(proto, v, s) ? 'text-amber-700/85 dark:text-amber-300/70' : 'text-zinc-500'
+  const closeTool = (proto: Proto, v: Variant, t: Tool, label: string) => `<button data-act="tool:${esc(proto.id)}:${v.id}:${t}" aria-label="${label}" title="${label} · Esc" class="${IB} shrink-0">${ic('x')}</button>`
+
+  function allStates(proto: Proto, v: Variant) {
+    const card = (s?: State) => {
+      const note = s?.about?.[v.id]
+      return `<div data-chipbox class="relative min-w-0"><button data-act="pvs:${esc(proto.id)}:${v.id}:${esc(s?.id ?? '')}" class="group block w-full min-w-0 text-left">
+        <div class="overflow-hidden rounded-lg ring-1 ring-black/10 transition group-hover:ring-2 group-hover:ring-zinc-900 dark:ring-white/10 dark:group-hover:ring-white">${thumb(proto, 'aspect-[16/10]')}</div>
+        <div class="mt-2 flex items-start gap-2">${s ? dot(proto, v.id, s) : dot(proto, v.id)}<div class="min-w-0"><div class="font-semibold">${esc(s?.name ?? 'At rest')}</div>${note && s ? `<p class="mt-0.5 text-xs ${noteCls(proto, v.id, s)}">${esc(note)}</p>` : ''}</div></div></button></div>`
+    }
+    return `<div class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-5 sm:px-6"><h2 class="text-xl font-semibold tracking-tight">Every state of ${v.id} <span class="font-normal text-zinc-500">· ${esc(v.name)}</span></h2><p class="text-xs text-zinc-500">Click one to try it live</p><span class="ml-auto">${closeTool(proto, v, 'all', 'Close all states')}</span></div>
+      <div class="${GRID} p-4 sm:p-6">${[undefined, ...statesOf(proto, v.id)].map(card).join('')}</div>`
+  }
+
+  function compareView(proto: Proto, v: Variant, o: Variant, s: State | undefined, pair: Variant[]) {
+    const ref = refOf(proto)
+    // The note shown is the one that says what changed: the non-reference side's.
+    const side = v.id !== ref ? v : o
+    const line = s ? (s.about?.[side.id] && side.id !== ref ? s.about[side.id] : '') : proto.about[side.id] ?? ''
+    const others = proto.variants.filter(x => x.id !== v.id)
+    const diffs = statesOf(proto, v.id).filter(x => changed(proto, v.id, x) || changed(proto, o.id, x))
+    const pane = (x: Variant) => `<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div class="flex h-9 shrink-0 items-center gap-2 border-b border-black/[.07] px-3 text-xs dark:border-white/10"><b>${x.id}</b><span class="truncate text-zinc-500">${esc(x.name)}</span>${x.id === v.id ? '' : `<button data-act="pvs:${esc(proto.id)}:${x.id}:${esc(s?.id ?? '')}" class="ml-auto shrink-0 rounded-md px-1.5 py-1 text-zinc-500 hover:bg-zinc-900/5 hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white">Open ${x.id}</button>`}</div>
+        <div data-fit data-chipbox ${x.id !== ref ? 'data-compare' : ''} class="relative min-h-0 flex-1 [contain:layout_paint]"><div class="absolute inset-0 overflow-auto">${frameOf(proto)}</div></div></div>`
+    return `<div class="flex h-full flex-col">
+      <div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-amber-500/30 bg-amber-50 px-3 py-2 text-xs dark:bg-amber-500/10">
+        <span class="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-200">${v.id} against${others.length > 1 ? `<span class="flex gap-0.5 rounded-md bg-amber-500/10 p-0.5">${others.map(x => `<button data-act="vs:${x.id}" aria-pressed="${x.id === o.id}" class="h-6 min-w-6 rounded px-1.5 ${x.id === o.id ? 'bg-white text-amber-900 shadow-sm dark:bg-amber-200 dark:text-amber-950' : 'text-amber-800 hover:bg-amber-500/15 dark:text-amber-200'}">${x.id}</button>`).join('')}</span>` : ` ${o.id}`}</span>
+        <span class="min-w-0 flex-1 text-amber-900/80 dark:text-amber-200/80"><b class="font-medium">${esc(s?.name ?? 'At rest')}</b>${line ? ` · ${esc(line)}` : ''}</span>
+        ${diffs.length ? `<button data-act="nextdiff" class="flex h-8 items-center gap-1 rounded-lg bg-amber-500/15 px-2.5 font-medium text-amber-900 hover:bg-amber-500/25 dark:text-amber-200">Next difference${ic('right', 'size-3.5')}</button>` : ''}
+        ${closeTool(proto, v, 'compare', 'Stop comparing')}
+      </div>
+      <div class="flex min-h-0 flex-1 flex-col divide-y divide-black/[.07] md:flex-row md:divide-x md:divide-y-0 dark:divide-white/10">${pair.map(pane).join('')}</div></div>`
+  }
+
+  function playView(proto: Proto, v: Variant) {
+    const list = statesOf(proto, v.id)
+    return `<div class="flex h-full flex-col">
+      <div data-play-box class="relative min-h-0 flex-1">
+        <div data-fit data-chipbox class="absolute inset-0 overflow-auto [contain:layout_paint]">${frameOf(proto)}</div>
+        <div data-cursor hidden class="pointer-events-none absolute left-0 top-0 z-30 transition-transform duration-700 ease-in-out" style="transform:translate(60%,70%)"><span data-ripple class="absolute -left-4 -top-4 size-8 rounded-full bg-sky-400/50 opacity-0"></span><svg width="22" height="22" viewBox="0 0 24 24" class="drop-shadow-md"><path d="M4 2l16 9-7 2-3 7z" fill="#18181b" stroke="white" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+      </div>
+      <div class="flex shrink-0 items-center gap-3 border-t border-black/[.07] bg-white px-3 py-2 dark:border-white/10 dark:bg-zinc-950">
+        <button data-act="play:toggle" data-play-btn class="flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-zinc-900 px-3.5 text-sm font-semibold text-white hover:bg-zinc-700 dark:bg-white dark:text-zinc-900"></button>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 text-xs"><span data-play-label class="shrink-0 font-semibold"></span><span data-play-note class="truncate text-zinc-500"></span></div>
+          <div class="mt-1 flex gap-1">${list.map((s, i) => `<button data-act="play:jump:${i}" title="${esc(s.name)}" aria-label="${esc(s.name)}" class="group flex-1 py-1.5"><span class="block h-1.5 overflow-hidden rounded-full bg-zinc-200 group-hover:bg-zinc-300 dark:bg-zinc-800 dark:group-hover:bg-zinc-700"><span data-seg="${i}" class="block h-full w-0 rounded-full ${changed(proto, v.id, s) ? 'bg-amber-500' : 'bg-sky-500'}"></span></span></button>`).join('')}</div>
+        </div>
+        ${closeTool(proto, v, 'play', 'Stop autoplay')}
+      </div></div>`
   }
 
   function show(fade: boolean) {
@@ -214,11 +447,12 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const prev = layer
     layer = next
     layers.prepend(next.el)
-    if (prev) {
-      const drop = () => { prev.el.remove(); prev.dispose() }
-      fade ? fadeOut(prev.el, drop) : drop()
-    }
     fit()
+    if (!prev) return
+    // The new design reaches its state under the old one, which then fades out on top.
+    prev.el.inert = true
+    const drop = () => { prev.el.remove(); prev.dispose() }
+    Promise.race([next.ready, wait(1500)]).then(() => (fade ? fadeOut(prev.el, drop) : drop()))
   }
 
   function fit() {
@@ -226,8 +460,11 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     if (!layer) return
     const box = layer.el
     box.style.setProperty('--stage-h', `${box.clientHeight}px`)
-    const auto = [100, 75, 50].find(s => 872 * s / 100 <= box.clientHeight - 48 && 413 * s / 100 <= box.clientWidth - 24) ?? 40
-    for (const phone of box.querySelectorAll<HTMLElement>('[data-phone]')) phone.style.zoom = String((st.scale || auto) / 100)
+    for (const phone of box.querySelectorAll<HTMLElement>('[data-phone]')) {
+      const room = phone.closest<HTMLElement>('[data-fit]') ?? box
+      const auto = [100, 75, 50].find(s => 872 * s / 100 <= room.clientHeight - 48 && 413 * s / 100 <= room.clientWidth - 24) ?? 40
+      phone.style.zoom = String((st.scale || auto) / 100)
+    }
   }
   new ResizeObserver(fit).observe(zone)
 
@@ -248,14 +485,18 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     render()
     if (moved) side.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' })
   }
-  addEventListener('hashchange', () => arrive(parseHash() ?? defaultPlace(), true))
+  addEventListener('hashchange', () => {
+    const p = parseHash() ?? defaultPlace()
+    if (location.hash !== hashOf(p)) history.replaceState(null, '', hashOf(p))
+    arrive(p, true)
+  })
 
   function step(d: number) {
     const proto = cur()
     if (!proto || !proto.variants.length) return
     const ids = proto.variants.map(v => v.id)
     const i = st.place.view === 'variant' ? ids.indexOf(st.place.variant) : -1
-    go({ view: 'variant', proto: proto.id, variant: ids[(i + d + ids.length) % ids.length] })
+    go(keepIn(proto, ids[(i + d + ids.length) % ids.length]))
   }
   const openProto = (id: string) => {
     const proto = byId(id)!
@@ -369,6 +610,10 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       <div class="border-t border-black/[.06] px-4 py-2.5 text-[11px] text-zinc-400 dark:border-white/10">${many ? '↑↓ move · Enter opens · ←→ step' : '← → step through variants'}</div>`
 
     const v = vs.find(v => v.id === vid)
+    // Where in the variant: its state, and the tool it is shown through.
+    const pv = st.place.view === 'variant' ? st.place : null
+    const stateName = p && pv ? stateOf(p, pv.variant, pv.tool === 'play' ? st.playing : pv.state)?.name ?? '' : ''
+    const where = pv ? [pv.tool && (pv.tool === 'compare' ? `vs ${otherOf(p!, pv.variant)}` : TOOLS[pv.tool].name), stateName].filter(Boolean).join(' · ') : ''
     const initial = esc((session.name.trim()[0] || 'P').toUpperCase())
     // What this prototype was built from: one crumb per level, each opening the variant it came
     // from. Narrow bars keep the nearest level and fold the rest into "…" (the tree drawer).
@@ -380,7 +625,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
         ${crumb('lobby:session', 'session', `<span class="relative grid size-5 shrink-0 place-items-center rounded bg-zinc-900 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-900">${initial}<span class="absolute -right-1 -top-1 flex rounded-full ring-2 ring-white dark:ring-zinc-950">${pulse('size-2', st.live && !st.stopped)}</span></span><span class="hidden truncate md:inline">${esc(session.name)}</span>`, view === 'session', sessionMenu, 'left-2 top-12 w-[22rem] max-w-[calc(100vw-1rem)] sm:left-0')}
         ${ancestors}
         ${p ? sep + crumb('lobby:proto', 'proto', `<span class="truncate">${esc(p.title)}</span>`, view === 'proto', protoMenu, 'inset-x-2 top-12 sm:inset-x-auto sm:left-0 sm:w-96') : ''}
-        ${v ? sep + crumb(`variant:${v.id}`, 'variant', `<span class="truncate"><b class="text-zinc-900 dark:text-white">${v.id}</b><span class="hidden font-normal text-zinc-500 sm:inline dark:text-zinc-400"> · ${esc(v.name)}</span></span>`, true, variantMenu, 'right-2 top-12 w-72 sm:left-0 sm:right-auto') : ''}
+        ${v ? sep + crumb(`variant:${v.id}`, 'variant', `<b class="shrink-0 text-zinc-900 dark:text-white">${v.id}</b><span class="hidden min-w-0 truncate font-normal text-zinc-500 sm:block dark:text-zinc-400">· ${esc(v.name)}</span>`, true, variantMenu, 'right-2 top-12 w-72 sm:left-0 sm:right-auto') : ''}
+        ${where ? `${sep}<span class="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md bg-sky-500/10 px-2 font-medium text-sky-700 dark:text-sky-300">${pv!.tool ? ic(TOOLS[pv!.tool].icon, 'size-3.5') : ''}<span class="truncate">${esc(where)}</span></span>` : ''}
       </nav>
       <div class="ml-auto flex items-center gap-1">
         <div class="hidden sm:block">${seg()}</div>
@@ -451,7 +697,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
         if (on) list.scrollTop = on.offsetTop - list.offsetTop - list.clientHeight / 2 + on.clientHeight / 2
       }
     })
-    document.title = [v && `${v.id} · ${v.name}`, p?.title, session.name].filter(Boolean).join(' – ')
+    document.title = [where, v && `${v.id} · ${v.name}`, p?.title, session.name].filter(Boolean).join(' – ')
     paintIcon()
   }
 
@@ -466,8 +712,32 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     function node(q: Proto): string {
       const open = isOpen(q.id, onBranch), here = q.id === p?.id && view !== 'session'
       const variants = q.variants.map(v => {
-        const on = here && vid === v.id, ks = kidsOf(q, v.id)
-        return `<button data-act="pv:${esc(q.id)}:${v.id}" aria-current="${on}" class="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left ${on ? `${ON} font-medium` : ROW}"><span class="w-4 shrink-0 text-center text-xs font-semibold ${on ? '' : 'text-zinc-400'}">${v.id}</span><span class="min-w-0 truncate">${esc(v.name)}</span>${v.id === pickOf(q) ? `<span title="Picked">${ic('check', `size-3.5 ${PICK}`)}</span>` : ''}${editing(q.id, v.id) ? pulse('size-1.5') : ''}${ks.length ? `<span class="ml-auto" title="${ks.length} built from ${v.id}">${ic('branch', 'size-3.5 text-sky-500')}</span>` : ''}</button>${nested(ks)}`
+        const on = here && vid === v.id, ks = kidsOf(q, v.id), sts = statesOf(q, v.id)
+        const at = on && st.place.view === 'variant' ? st.place : null
+        const tool = at?.tool
+        // The leaf that is lit: the state shown (autoplay: the one it is on), or At rest.
+        const lit = tool === 'all' ? null : tool === 'play' ? st.playing : at?.state ?? ''
+        const key = `vm|${q.id}|${v.id}`, menu = st.open === key
+        // The row itself is lit when there are no leaves to carry it (or All states is on).
+        const rowOn = on && (!sts.length || tool === 'all')
+        const tools = (['play', 'all', 'compare'] as Tool[]).filter(t => toolOk(q, v.id, t))
+        const menuHtml = `<div class="p-1.5" role="menu"><div class="px-2.5 pb-1 pt-1 text-[11px] font-medium text-zinc-400">${v.id} · ${esc(v.name)}</div>${tools.map(t => {
+          const isOn = tool === t, meta = t === 'all' ? `${sts.length + 1}` : t === 'compare' ? `with ${otherOf(q, v.id)}` : ''
+          return `<button data-act="tool:${esc(q.id)}:${v.id}:${t}" role="menuitem" class="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left ${isOn ? ON : 'hover:bg-zinc-900/[.04] dark:hover:bg-white/[.06]'}">${ic(TOOLS[t].icon, 'mt-0.5 size-4 text-zinc-500 dark:text-zinc-400')}<span class="min-w-0 flex-1"><span class="flex items-baseline gap-1.5 font-medium text-zinc-900 dark:text-white">${TOOLS[t].name}<span class="text-[11px] font-normal text-zinc-400">${meta}</span></span><span class="block text-xs text-zinc-500">${TOOLS[t].hint}</span></span>${isOn ? ic('check', 'mt-0.5 size-4') : ''}</button>`
+        }).join('')}</div>`
+        const leaf = (x?: State) => {
+          const id = x?.id ?? '', lighted = lit === id, note = x?.about?.[v.id]
+          return `<button data-act="pvs:${esc(q.id)}:${v.id}:${esc(id)}" aria-current="${lighted}" class="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left ${lighted ? ON : ROW}">${dot(q, v.id, x, lighted)}<span class="min-w-0 flex-1"><span class="flex items-center gap-1.5 leading-4 ${lighted ? 'font-medium text-zinc-900 dark:text-white' : ''}"><span class="truncate">${esc(x?.name ?? 'At rest')}</span>${lighted && tool === 'play' ? ic('play', 'size-3 text-sky-500') : ''}</span>${note && x ? `<span class="mt-1 block text-[11px] leading-[15px] ${noteCls(q, v.id, x)}">${esc(note)}</span>` : ''}</span></button>`
+        }
+        return `<div class="group/v relative flex h-8 items-center rounded-lg ${rowOn ? `${ON} font-medium` : ROW}">
+            <button data-act="pv:${esc(q.id)}:${v.id}" aria-current="${rowOn}" class="flex h-8 min-w-0 flex-1 items-center gap-2.5 pl-2 pr-1 text-left"><span class="w-4 shrink-0 text-center text-xs font-semibold ${on ? '' : 'text-zinc-400'}">${v.id}</span><span class="min-w-0 truncate ${on ? 'text-zinc-900 dark:text-white' : ''}">${esc(v.name)}</span>${v.id === pickOf(q) ? `<span title="Picked">${ic('check', `size-3.5 ${PICK}`)}</span>` : ''}${editing(q.id, v.id) ? pulse('size-1.5') : ''}</button>
+            ${ks.length ? `<span class="shrink-0 px-1" title="${ks.length} built from ${v.id}">${ic('branch', 'size-3.5 text-sky-500')}</span>` : ''}
+            ${tool ? `<button data-act="tool:${esc(q.id)}:${v.id}:${tool}" title="${TOOLS[tool].name} is on · click to stop" aria-label="Stop ${TOOLS[tool].name}" class="grid size-7 shrink-0 place-items-center rounded-md bg-sky-500/10 text-sky-700 hover:bg-sky-500/20 dark:text-sky-300">${ic(TOOLS[tool].icon, 'size-3.5')}</button>` : ''}
+            ${tools.length && q.states.length ? `<button data-act="open:${key}" aria-label="Tools for ${v.id}" aria-haspopup="menu" aria-expanded="${menu}" title="Autoplay, all states, compare" class="size-7 shrink-0 place-items-center rounded-md ${menu || tool ? 'grid' : 'hidden group-hover/v:grid group-focus-within/v:grid [@media(hover:none)]:grid'} ${menu ? ON : 'text-zinc-400 hover:bg-zinc-900/[.06] hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white'}">${ic('dots')}</button>${pop(menu, menuHtml, 'inset-x-0 top-9 min-w-56')}` : ''}
+          </div>
+          ${q.about?.[v.id] ? `<p class="mb-1.5 ml-[34px] mr-2 mt-0.5 text-[11.5px] leading-snug ${on ? 'text-zinc-600 dark:text-zinc-400' : 'text-zinc-400 dark:text-zinc-500'}">${esc(q.about[v.id])}</p>` : ''}
+          ${on && sts.length ? `<div class="mb-1 ml-[15px] border-l border-black/[.08] pl-1.5 dark:border-white/10">${leaf()}${sts.map(leaf).join('')}</div>` : ''}
+          ${nested(ks)}`
       }).join('')
       return `<div><div class="flex h-9 items-center rounded-lg ${here && view === 'proto' ? ON : ROW}">
         <button data-act="fold:${esc(q.id)}" aria-expanded="${open}" aria-label="${open ? 'Fold' : 'Open'} ${esc(q.title)}" class="grid h-9 w-7 shrink-0 place-items-center text-zinc-400">${ic(open ? 'chev' : 'right', 'size-3.5')}</button>
@@ -509,13 +779,39 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   }
 
   // ---------- actions ----------
-  function act(name: string, arg: string, arg2: string) {
+  /** The same variant without its tool (compare keeps its state; the others go back to rest). */
+  const untool = (pl: Place): Place => pl.view === 'variant' ? { view: 'variant', proto: pl.proto, variant: pl.variant, ...(pl.tool === 'compare' && pl.state ? { state: pl.state } : {}) } : pl
+  function act(name: string, arg: string, arg2: string, arg3 = '') {
     const p = cur()
+    const here = st.place.view === 'variant' ? st.place : null
     switch (name) {
+      // A state leaf: that variant in that state. Comparing keeps comparing.
+      case 'pvs': {
+        const keep = here?.tool === 'compare' && here.proto === arg && here.variant === arg2
+        return go({ view: 'variant', proto: arg, variant: arg2, ...(arg3 ? { state: arg3 } : {}), ...(keep ? { tool: 'compare' as Tool } : {}) })
+      }
+      // A tool from a variant's ⋯ menu; choosing the one that is on turns it off.
+      case 'tool': {
+        st.open = null
+        const t = arg3 as Tool
+        if (here && here.proto === arg && here.variant === arg2 && here.tool === t) return go(untool(here))
+        const state = t === 'compare' && here?.proto === arg && here.variant === arg2 ? here.state : undefined
+        return go({ view: 'variant', proto: arg, variant: arg2, tool: t, ...(state ? { state } : {}) })
+      }
+      case 'vs': if (p) { st.vs.set(p.id, arg); show(false); render() } return
+      case 'nextdiff': {
+        if (!p || !here) return
+        const v = here.variant, o = otherOf(p, v)
+        const list = statesOf(p, v).filter(x => changed(p, v, x) || changed(p, o, x))
+        if (!list.length) return
+        const i = list.findIndex(x => x.id === here.state)
+        return go({ ...here, state: list[(i + 1) % list.length].id })
+      }
+      case 'play': return arg === 'jump' ? layer?.player?.jump(Number(arg2)) : layer?.player?.toggle()
       case 'lobby': return arg === 'session' ? go({ view: 'session' }) : go({ view: 'proto', proto: arg2 || p!.id })
       case 'proto': return openProto(arg)
       case 'pv': return go({ view: 'variant', proto: arg, variant: arg2 })
-      case 'variant': return go({ view: 'variant', proto: p!.id, variant: arg })
+      case 'variant': return go(keepIn(p!, arg))
       case 'step': return step(Number(arg))
       case 'open': st.open = st.open === arg ? null : arg; st.copied = false; if (arg === 'session') refreshStatus(); return render()
       case 'archived': st.archived = !st.archived; return render()
@@ -535,13 +831,16 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   }
 
   root.addEventListener('click', e => {
+    // Clicks the shell replays inside a design (to reach a state) are the design's business; in
+    // a lobby card they would otherwise bubble up to the card and open it.
+    if (!e.isTrusted && (e.target as Element).closest('[data-mount]')) return
     const el = (e.target as Element).closest<HTMLElement>('[data-act]')
     if (!el) {
       if (st.open && !(e.target as Element).closest('[data-pop]')) { st.open = null; render() }
       return
     }
-    const [name, arg = '', arg2 = ''] = el.dataset.act!.split(':')
-    act(name, arg, arg2)
+    const [name, arg = '', arg2 = '', arg3 = ''] = el.dataset.act!.split(':')
+    act(name, arg, arg2, arg3)
   })
 
   root.addEventListener('input', e => {
@@ -570,6 +869,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       if (st.open) { st.open = null; return render() }
       if (st.drawer) { st.drawer = false; return render() }
       if (st.focus) return act('unfocus', '', '')
+      if (st.place.view === 'variant' && st.place.tool) return go(untool(st.place))
     }
     if (e.metaKey || e.ctrlKey || e.altKey || t.closest?.(INTERACTIVE)) return
     if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && st.place.view === 'variant') { e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1) }
@@ -650,7 +950,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   arrive(start, false)
   if (q.has('focus')) act('focus', '', '')
   refreshStatus()
-  document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => { document.documentElement.dataset.ready = '1' })))
+  Promise.all([document.fonts.ready, Promise.race([(layer as Layer | null)?.ready, wait(5000)])]).then(() => requestAnimationFrame(() => requestAnimationFrame(() => { document.documentElement.dataset.ready = '1' })))
 
   let editTimer = 0
   return {

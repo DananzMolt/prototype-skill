@@ -9,3 +9,6 @@
 
 html, body, #app { height: 100%; }
 body { margin: 0; }
+
+/* Compare: what a variant marks as new (data-diff) is outlined on its side. */
+[data-compare] [data-diff] { outline: 2px dashed #f59e0b; outline-offset: 3px; border-radius: 6px; }

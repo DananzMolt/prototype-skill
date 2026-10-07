@@ -87,6 +87,15 @@ The prototype page shows every variant as a live thumbnail, or one after another
 </picture>
 </p>
 
+### See what's behind the clicks
+
+Menus, drawers and steps inside a variant are listed under it in the sidebar, each with a line on what it is or what this variant changes (in amber). Click one and the variant opens in that state. The ⋯ on a variant's row has three more ways in: Autoplay clicks through every state for you, All states shows them on one page, and Compare puts two variants side by side in the same state, with what one adds outlined.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/states-dark.png">
+  <img alt="Two variants compared in the same state, with the states listed in the sidebar" src="docs/images/states-light.png">
+</picture>
+
 ### Focus mode
 
 Press `F` and the chrome disappears. A small dock stays at the bottom and grows as your pointer gets close; edge arrows appear near the sides.
@@ -116,7 +125,7 @@ The link works on any device on your tailnet, and phone prototypes sit in a real
 1. Starts the session app and sends you the link.
 2. Reads your tokens and nearest existing screens, and writes down what the feature must do.
 3. Picks genuinely different directions (where it lives, how it's triggered, how much it shows), five unless you say otherwise.
-4. Writes each variant into the app; you watch them land.
+4. Writes each variant into the app, and lists what's behind its clicks; you watch them land.
 5. Screenshots every variant on desktop and phone, fixes what breaks, two rounds.
 6. Recommends one, says why, and what to take from the others.
 

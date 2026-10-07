@@ -2,7 +2,8 @@
 // Screenshot places in a prototype session at desktop and phone size.
 // Usage: shoot.mjs <app-url> <out-dir> <route...> [--theme=dark] [--focus=1] [--click=<css>]...
 // Routes are the page's hash routes: "/" (session lobby), "hero" (a prototype's lobby),
-// "hero/A" (one variant). Files are named hero-A-desktop.png, hero-A-mobile-dark.png …
+// "hero/A" (one variant), "hero/A/open" (a state from its meta). Files are named
+// hero-A-desktop.png, hero-A-mobile-dark.png …
 // Normally run through `proto shoot`, which fills in the URL and folder.
 //
 // Drives Chrome over the DevTools protocol so the phone shot is a real 390px mobile
@@ -90,6 +91,9 @@ try {
         await sleep(100)
       }
       await sleep(400) // let images and the first crossfade settle
+      // A state route whose clicks found nothing still shoots, but says so.
+      const { result: miss } = await send('Runtime.evaluate', { expression: `[...document.querySelectorAll('[data-missed]')].map(e => e.textContent).join('; ')`, returnByValue: true }, sessionId)
+      if (miss.value) console.error(`shoot: ${miss.value} on ${route}`)
       // Interaction states: click each selector inside the design, in order.
       for (const sel of clicks) {
         const { result } = await send('Runtime.evaluate', { expression: `(() => { const el = document.querySelector('[data-layers]').querySelector(${JSON.stringify(sel)}); el?.click(); return !!el })()`, returnByValue: true }, sessionId)
