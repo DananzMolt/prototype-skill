@@ -39,6 +39,16 @@ export function decided() {
   return metas.length > 0 && metas.every(m => m.archived || m.picked)
 }
 
+// The page moves the working variant two ways: back to one under Before (the one it leaves goes
+// to Before, as with `proto work`), or Undo of a move it was just told about (nothing is kept).
+const same = (a, b) => !!a && !!b && a.proto === b.proto && a.variant === b.variant
+function work({ proto, variant, undo }) {
+  const s = read(), t = { proto: String(proto), variant: String(variant) }
+  if (same(s.work, t)) return
+  const before = undo ? (s.before || []).filter(x => !same(x, t)) : [s.work, ...(s.before || [])].filter(x => x && !same(x, t))
+  write({ work: { ...t, at: new Date().toISOString() }, before: before.filter((x, i, all) => all.findIndex(y => same(x, y)) === i).slice(0, 3).map(x => ({ proto: x.proto, variant: x.variant })) })
+}
+
 export function prototypeServer(session) {
   let activity = Date.now()
   const status = () => {
@@ -69,6 +79,7 @@ export function prototypeServer(session) {
           const data = body ? JSON.parse(body) : {}
           if (route === '/ping') activity = Date.now()
           if (route === '/keep') write({ keep: !!data.keep })
+          if (route === '/work' && data.proto && data.variant) work(data)
           res.setHeader('content-type', 'application/json')
           res.end(JSON.stringify(status()))
           if (route === '/stop') setTimeout(() => stop('stopped from the page'), 100)
