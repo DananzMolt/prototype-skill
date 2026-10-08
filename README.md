@@ -60,13 +60,18 @@ Keep going in the same session and everything lands in the same app, under the s
 | "try it on the phone" | the variants in phone frames |
 | "build the winner" | the real feature in your codebase, with screenshots |
 | "go with A" | A is marked as picked in the page, the others stay |
+| "make B's price bigger" | the change, kept under "What you asked for" on B's card |
 | "put these in a doc I can share" | a Claude Doc with a static snapshot of each variant |
 
 ## What you get
 
 ### Every variant is a real page
 
-Breadcrumbs go session › prototype › variant. Each name opens an overview, each chevron jumps anywhere, and the tabs or the arrow keys step through variants. A sidebar shows the same thing as a tree, with a prototype built from part of another variant (its hero, then that hero's CTA) nested under the variant it came from. Hide it with ⌘\ for breadcrumbs alone.
+Breadcrumbs go session › prototype › variant. Each name opens an overview, each chevron jumps anywhere, and the tabs or the arrow keys step through variants. A sidebar shows the same thing as a tree. A prototype built from part of another variant (its hero, then that hero's CTA) is a row under the variant it came from; open it and the sidebar shows only that branch, with what it was built from listed one line per level, so five levels deep reads as easily as one. Hide the sidebar with ⌘\ for breadcrumbs alone.
+
+### Working on one variant
+
+Once you pick a direction and keep asking for changes, that variant is pinned at the top of the sidebar. From anywhere, one click or W brings you back. On it, the card lists what you asked for, what was built from it, its sibling variants (Hide others takes them out of the tabs and the tree) and what you worked on before. When Claude moves on to another variant, the card follows and offers Undo.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/menu-dark.png">

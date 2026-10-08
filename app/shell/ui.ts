@@ -24,6 +24,8 @@ const PATHS: Record<string, string> = {
   pause: 'M8 5v14M16 5v14',
   replay: 'M4 12a8 8 0 1 0 2.5-5.8M4 4v4h4',
   diff: 'M7 4v16M17 4v16M4 8h6M14 16h6',
+  pin: 'M9 4h6l-1 5 3 3v2H7v-2l3-3zM12 14v6',
+  layers: 'M12 3 3 8l9 5 9-5zM3 13l9 5 9-5',
 }
 
 export const ic = (name: string, cls = 'size-4') =>

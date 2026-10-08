@@ -13,8 +13,8 @@ updates through hot module replacement, never a reload. Everything the user asks
 session lives in that one app: **session › prototype › variant**.
 
 The app already has its navigation (a sidebar tree, breadcrumbs that open lobbies, jump menus,
-variant tabs, edge arrows, a focus mode with a dock, light and dark, phone frames, "editing" dots). You
-only write variant files.
+variant tabs, edge arrows, a focus mode with a dock, light and dark, phone frames, "editing" dots,
+a "Working on" card for the variant being changed). You only write variant files.
 
 `proto` below means `node "${CLAUDE_SKILL_DIR}/scripts/proto.mjs"` (through `node`, the path in
 double quotes, not a shell variable: the same command works in Bash, Git Bash and PowerShell). It
@@ -255,12 +255,32 @@ with C"), run `proto pick <slug> <letter>` before anything else, without asking.
 name the prototype, it's the one you showed them last. The page then marks it (a check in the
 sidebar, the variant first and outlined in its overview, the rest faded but still there) and
 everything built from the prototype stays nested under it. Choosing again replaces the pick;
-"undo that" is `proto pick <slug> --off`. Then do what they asked next, if anything.
+"undo that" is `proto pick <slug> --off`. A pick also makes that variant the one being worked
+on (next section). Then do what they asked next, if anything.
 
 A pick is not an archive: archive is for directions the user drops, and a picked prototype is
 the one they will come back to.
 
 If `proto up` or `proto shoot` failed, say so with the error instead of leaving things out.
+
+## While the user works on one variant
+
+After a pick the user usually asks for changes to one variant, round after round. The page pins
+that variant in a "Working on" card at the top of the sidebar: one click (or W) brings the user
+back to it from anywhere, and on it the card lists what they asked for, what was built from it,
+its sibling variants (with Hide others) and the variants worked on before.
+
+- **Each change the user asks for on it:** run `proto ask "<what they asked, a few words>"`
+  before you edit, one line per request, in their terms ("Plus card: make it the obvious
+  choice"), not yours.
+- **When their request is about a different variant** ("now let's do D", "B's header, same
+  idea"): `proto work <slug>/<letter> --ask "<what they asked>"` first. The card moves there and
+  offers Undo; the old one goes under Before, with its history kept.
+- **Only on purpose.** Don't move it for an edit in passing (a typo in A, a shared `parts.tsx`):
+  those light the editing dot as always. A variant built with `proto add --from` becomes the
+  working one only when the user starts asking for changes to it.
+- `proto work` alone prints the current one; `proto work --off` clears it. Archiving its
+  prototype clears it too.
 
 ## 7. Only if asked: build it
 
@@ -296,6 +316,8 @@ Each module is roughly 4 to 30 KB and goes through your tool calls, so snap only
 | Variations of one variant ("B but with a map") | new letters in the same prototype, named after B |
 | A part of one variant, explored on its own ("B's hero, but better") | `proto add <new slug> --from <slug>/B …` |
 | A choice ("go with A", "build B") | `proto pick <slug> <letter>` first, then what they asked |
+| A change to the variant being worked on ("make the price bigger") | `proto ask "…"`, then edit it |
+| A change to another variant ("now D, same idea") | `proto work <slug>/<letter> --ask "…"`, then edit it |
 | To drop a direction or prototype | `proto archive <slug>` (still reachable under Archived) |
 | The prototypes in a doc to share | `proto snap`, then a Claude Doc (section above) |
 | Prototypes for a different project | `proto up --project <dir>`: a separate app for that project |

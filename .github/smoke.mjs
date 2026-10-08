@@ -60,6 +60,16 @@ proto(['pick', 'home', 'B'])
 proto(['pick', 'home', 'Z'], { ok: false })
 if (!readFileSync(join(app, 'src', 'protos', 'home', 'meta.ts'), 'utf8').includes('"picked": "B"')) fail('home/meta.ts has no "picked": "B"')
 
+// The working variant: a pick sets it, `proto work` moves it (the old one goes under before),
+// and asks are kept per variant in session.json.
+proto(['work', 'hero/A', '--ask', 'Bigger price'])
+proto(['work', 'hero/Z'], { ok: false })
+proto(['ask', 'And a shorter title'])
+const sess = JSON.parse(readFileSync(join(app, 'session.json'), 'utf8'))
+if (sess.work?.proto !== 'hero' || sess.work.variant !== 'A') fail(`work should be hero/A, is ${JSON.stringify(sess.work)}`)
+if (!sess.before?.some(b => b.proto === 'home' && b.variant === 'B')) fail('home/B (the pick) should be under before')
+if (sess.asks?.['hero/A']?.length !== 2 || sess.asks?.['home/B']?.[0]?.text !== 'Picked B') fail(`asks are wrong: ${JSON.stringify(sess.asks)}`)
+
 proto(['shoot', '', 'hero', 'hero/A'])
 const shots = join(app, '.proto', 'shots')
 const made = pngs(shots)

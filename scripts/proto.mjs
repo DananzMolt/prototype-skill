@@ -8,6 +8,8 @@
 //             [--ref <png>]   also the variant's screen beside that screenshot of the real one
 //   proto snap <slug>[/<letter>]… [--width 672]   static HTML snapshots for a Claude Doc
 //   proto pick <slug> <letter> [--off]   the user chose this variant: marked in the page
+//   proto work <slug>/<letter> [--ask "…"] [--off]   the variant being worked on: pinned in the page
+//   proto ask "…" [--to <slug>/<letter>]   a change the user asked for, kept with that variant
 //   proto archive <slug> [--off]    proto keep [--off]      proto url    proto stack
 //   proto stop    proto rm    proto ls    proto gc
 //
@@ -295,7 +297,65 @@ function pick() {
   else if (!id || !meta.variants?.[id]) die(`which variant of ${slug}? (${Object.keys(meta.variants || {}).join(', ')})`)
   else meta.picked = id
   writeFileSync(metaFile, text.replace(/export default[\s\S]*$/, `export default ${JSON.stringify(meta, null, 2)}\n`))
+  // The pick is what gets worked on next; its history starts here.
+  if (!flags.off) setWork(dir, { proto: slug, variant: id }, `Picked ${id}`)
   console.log(flags.off ? `${slug}: no pick` : `${slug}: picked ${id} · ${meta.variants[id]}`)
+}
+
+// ---------- the working variant ----------
+// What the user is changing now: one variant per session, pinned at the top of the page's
+// sidebar with what they asked for on it. It moves only when told to (a pick, `proto work`),
+// never because some file changed. Kept in session.json, which the page reloads live.
+const readMeta = (dir, slug) => {
+  const f = join(dir, 'src', 'protos', slug || '', 'meta.ts')
+  if (!slug || !existsSync(f)) return null
+  return JSON.parse(readFileSync(f, 'utf8').replace(/^[\s\S]*?export default\s*/, '').replace(/;?\s*$/, ''))
+}
+const sameVariant = (a, b) => !!a && !!b && a.proto === b.proto && a.variant === b.variant
+function target(dir, spec) {
+  const [proto, variant] = String(spec || '').split('/')
+  const meta = readMeta(dir, proto)
+  if (!meta) die(`no prototype "${proto || ''}" here: give <slug>/<letter>`)
+  if (!variant || !meta.variants?.[variant]) die(`which variant of ${proto}? (${Object.keys(meta.variants || {}).join(', ')})`)
+  return { proto, variant, name: meta.variants[variant] }
+}
+/** Points the session at a variant; the one it leaves goes first in `before` (three kept). */
+function setWork(dir, t, ask) {
+  const s = readSession(dir)
+  const at = new Date().toISOString()
+  const patch = {}
+  if (!sameVariant(s.work, t)) {
+    patch.work = { proto: t.proto, variant: t.variant, at }
+    patch.before = [s.work, ...(s.before || [])].filter(x => x && !sameVariant(x, t))
+      .filter((x, i, all) => all.findIndex(y => sameVariant(x, y)) === i).slice(0, 3).map(x => ({ proto: x.proto, variant: x.variant }))
+  }
+  if (ask) {
+    const key = `${t.proto}/${t.variant}`
+    patch.asks = { ...s.asks, [key]: [...(s.asks?.[key] || []), { at, text: ask }] }
+  }
+  patchSession(dir, patch)
+}
+
+function work() {
+  const dir = sessionDir()
+  const s = need(dir)
+  if (flags.off) { patchSession(dir, { work: null }); return console.log('no working variant') }
+  if (!args[0]) return console.log(s.work ? `working on ${s.work.proto}/${s.work.variant}` : 'no working variant')
+  const t = target(dir, args[0])
+  setWork(dir, t, typeof flags.ask === 'string' ? flags.ask.trim() : '')
+  console.log(`working on ${t.proto}/${t.variant} · ${t.name}`)
+}
+
+function ask() {
+  const dir = sessionDir()
+  const s = need(dir)
+  const text = args.join(' ').trim()
+  if (!text) die('what did the user ask for? proto ask "…"')
+  const t = flags.to ? target(dir, flags.to) : s.work
+  if (!t) die('no working variant yet: proto work <slug>/<letter> --ask "…"')
+  const key = `${t.proto}/${t.variant}`
+  patchSession(dir, { asks: { ...s.asks, [key]: [...(s.asks?.[key] || []), { at: new Date().toISOString(), text }] } })
+  console.log(`${key}: ${(s.asks?.[key]?.length || 0) + 1} asks`)
 }
 
 function archive() {
@@ -307,6 +367,7 @@ function archive() {
   const meta = JSON.parse(text.replace(/^[\s\S]*?export default\s*/, '').replace(/;?\s*$/, ''))
   meta.archived = !flags.off
   writeFileSync(metaFile, text.replace(/export default[\s\S]*$/, `export default ${JSON.stringify(meta, null, 2)}\n`))
+  if (meta.archived && readSession(dir).work?.proto === args[0]) patchSession(dir, { work: null })
   console.log(`${args[0]} ${meta.archived ? 'archived' : 'restored'}`)
 }
 
@@ -466,7 +527,7 @@ async function snap() {
 }
 
 const commands = {
-  up, add, pick, archive, shoot, snap, gc: () => gc(false), ls,
+  up, add, pick, work, ask, archive, shoot, snap, gc: () => gc(false), ls,
   stop: async () => { await stop(); console.log('stopped (files kept; proto up restarts it on the same link)') },
   rm: () => rm(),
   keep: () => { const dir = sessionDir(); need(dir); patchSession(dir, { keep: !flags.off }); console.log(flags.off ? 'no longer kept' : 'kept until deleted by hand') },
@@ -474,7 +535,7 @@ const commands = {
   stack: () => { const d = detectStack(projectRoot()); console.log(`${d.stack} (${d.why})`) },
 }
 if (!commands[cmd]) {
-  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split(/\r?\n/).slice(1, 15).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
+  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split(/\r?\n/).slice(1, 17).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
   process.exit(cmd ? 1 : 0)
 }
 await commands[cmd]()
