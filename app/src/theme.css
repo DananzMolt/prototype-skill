@@ -1,3 +1,6 @@
 /* The project's look goes here: its design tokens as a Tailwind @theme, or an @import of
-   the project's own stylesheet. Example:
-   @theme { --color-brand: #0f5e52; --font-sans: "Inter", system-ui, sans-serif; } */
+   the project's own stylesheet. The shell imports this file too, so add new names in @theme
+   and put values that replace Tailwind's own (--font-sans, --text-*) on a class the variants
+   set on their root. Example:
+   @theme { --color-brand: #0f5e52; }
+   .app { --font-sans: "Inter", system-ui, sans-serif; font-family: var(--font-sans); } */

@@ -14,7 +14,7 @@ export type Variant = { id: string; name: string; file: string; load: () => Prom
 /** Something behind clicks in a prototype's variants (a menu, a drawer, a dialog), reached by
  *  clicking its selectors in order. about: one line per variant; only: the variants that have it. */
 export type State = { id: string; name: string; click: string[]; about?: Record<string, string>; only?: string[] }
-export type Proto = { id: string; title: string; ask: string; kind: 'web' | 'phone'; created: string; archived: boolean; from?: { proto: string; variant: string }; picked?: string; about: Record<string, string>; states: State[]; variants: Variant[] }
+export type Proto = { id: string; title: string; ask: string; kind: 'web' | 'phone'; created: string; archived: boolean; from?: { proto: string; variant: string }; picked?: string; screen: [number, number]; about: Record<string, string>; states: State[]; variants: Variant[] }
 export type Session = { id: string; name: string; path: string; createdAt: string; url?: string; localUrl?: string }
 type Mount = (el: HTMLElement, component: any) => () => void
 // A variant can be shown in one of its states, or through a tool: all its states at once
@@ -247,10 +247,12 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const reloadIfStale = () => { if (updates > 300 && document.visibilityState === 'hidden') location.reload() }
   document.addEventListener('visibilitychange', reloadIfStale)
 
-  const thumb = (proto: Proto, aspect: string) => `<div data-thumb class="relative w-full overflow-hidden bg-white dark:bg-zinc-950 ${aspect}"><div inert class="pointer-events-none overflow-hidden ${proto.kind === 'phone' ? 'flex items-center justify-center bg-zinc-100 dark:bg-zinc-900' : ''} [contain:layout_paint]" style="width:1200px;height:750px">${proto.kind === 'phone' ? `<div class="${PHONE}" style="width:393px;height:852px;zoom:.78"><div data-mount class="h-full overflow-hidden"></div></div>` : '<div data-mount class="h-full"></div>'}</div></div>`
+  // The 10px bezel sits outside the screen, so the frame is the screen plus 20 each way.
+  const phoneSize = (proto: Proto) => `width:${proto.screen[0] + 20}px;height:${proto.screen[1] + 20}px`
+  const thumb = (proto: Proto, aspect: string) => `<div data-thumb class="relative w-full overflow-hidden bg-white dark:bg-zinc-950 ${aspect}"><div inert class="pointer-events-none overflow-hidden ${proto.kind === 'phone' ? 'flex items-center justify-center bg-zinc-100 dark:bg-zinc-900' : ''} [contain:layout_paint]" style="width:1200px;height:750px">${proto.kind === 'phone' ? `<div class="${PHONE}" style="${phoneSize(proto)};zoom:.78"><div data-mount class="h-full overflow-hidden"></div></div>` : '<div data-mount class="h-full"></div>'}</div></div>`
 
   const frameOf = (proto: Proto) => proto.kind === 'phone'
-    ? `<div data-phones class="flex min-h-full items-center justify-center p-6"><div data-phone class="${PHONE} [contain:layout_paint]" style="width:393px;height:852px"><div data-mount class="h-full overflow-y-auto"></div></div></div>`
+    ? `<div data-phones class="flex min-h-full items-center justify-center p-6"><div data-phone class="${PHONE} [contain:layout_paint]" style="${phoneSize(proto)}"><div data-mount class="h-full overflow-y-auto"></div></div></div>`
     : '<div data-mount class="h-full"></div>'
 
   function buildLayer(p: Place): Layer {
@@ -462,7 +464,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     box.style.setProperty('--stage-h', `${box.clientHeight}px`)
     for (const phone of box.querySelectorAll<HTMLElement>('[data-phone]')) {
       const room = phone.closest<HTMLElement>('[data-fit]') ?? box
-      const auto = [100, 75, 50].find(s => 872 * s / 100 <= room.clientHeight - 48 && 413 * s / 100 <= room.clientWidth - 24) ?? 40
+      const w = parseFloat(phone.style.width), h = parseFloat(phone.style.height)
+      const auto = [100, 75, 50].find(s => h * s / 100 <= room.clientHeight - 48 && w * s / 100 <= room.clientWidth - 24) ?? 40
       phone.style.zoom = String((st.scale || auto) / 100)
     }
   }
@@ -559,7 +562,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   // stage (a grid, so a root with h-full fills it) and contains its own position:fixed.
   function stack(p: Proto) {
     const head = (v: Variant) => `<div class="mb-3 flex h-8 min-w-0 items-center gap-2 ${p.kind === 'phone' ? 'justify-center' : ''}"><button data-act="pv:${esc(p.id)}:${v.id}" title="Open ${v.id}" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md hover:underline hover:decoration-zinc-400 hover:underline-offset-4"><span class="font-semibold">${v.id}</span><span class="truncate text-zinc-500">${esc(v.name)}</span></button>${v.id === pickOf(p) ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs font-medium ${PICK}">${ic('check', 'size-3.5')}Picked</span>` : ''}${editing(p.id, v.id) ? pulse('size-1.5') : ''}${kidsOf(p, v.id).map(k => `<button data-act="lobby:proto:${esc(k.id)}" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${NEST}">${ic('branch', 'size-3.5')}${esc(k.title)}</button>`).join('')}</div>`
-    if (p.kind === 'phone') return `<div class="flex flex-wrap justify-center gap-x-10 gap-y-8 p-4 sm:p-6">${lobbyOrder(p).map(v => `<section data-stack-item class="min-w-0">${head(v)}<div data-phone class="${PHONE} [contain:layout_paint]" style="width:393px;height:852px"><div data-mount class="h-full overflow-y-auto"></div></div></section>`).join('')}</div>`
+    if (p.kind === 'phone') return `<div class="flex flex-wrap justify-center gap-x-10 gap-y-8 p-4 sm:p-6">${lobbyOrder(p).map(v => `<section data-stack-item class="min-w-0">${head(v)}<div data-phone class="${PHONE} [contain:layout_paint]" style="${phoneSize(p)}"><div data-mount class="h-full overflow-y-auto"></div></div></section>`).join('')}</div>`
     return `<div class="space-y-8 py-4 sm:py-6">${lobbyOrder(p).map(v => `<section data-stack-item><div class="px-4 sm:px-6">${head(v)}</div><div class="grid min-h-[var(--stage-h)] border-y border-black/[.07] bg-white [contain:layout_paint] dark:border-white/10 dark:bg-zinc-950"><div data-mount class="min-w-0"></div></div></section>`).join('')}</div>`
   }
 

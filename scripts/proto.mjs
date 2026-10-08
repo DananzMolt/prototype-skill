@@ -2,9 +2,10 @@
 // proto: one live prototype app per Claude Code session, served on the tailnet.
 //
 //   proto up [--name "Session name"] [--stack react|vue]   create or restart, print the URL
-//   proto add <slug> --title "…" --variants "A:Name,B:Name" [--ask "…"] [--kind phone]
+//   proto add <slug> --title "…" --variants "A:Name,B:Name" [--ask "…"] [--kind phone] [--screen 402x874]
 //             [--from <slug>/<letter>]   built from that variant: nested under it in the page
 //   proto shoot [route…] [--theme dark] [--focus] [--click <css>]  screenshots, e.g. hero hero/A hero/A/open
+//             [--ref <png>]   also the variant's screen beside that screenshot of the real one
 //   proto snap <slug>[/<letter>]… [--width 672]   static HTML snapshots for a Claude Doc
 //   proto pick <slug> <letter> [--off]   the user chose this variant: marked in the page
 //   proto archive <slug> [--off]    proto keep [--off]      proto url    proto stack
@@ -237,6 +238,12 @@ function add() {
   if (flags.title) meta.title = flags.title
   if (flags.ask) meta.ask = flags.ask
   if (flags.kind) meta.kind = flags.kind === 'phone' ? 'phone' : 'web'
+  // The phone frame's screen in points, read off the reference (an iPhone 17 shot is 1206×2622 at 3x: 402x874).
+  if (flags.screen) {
+    const m = String(flags.screen).match(/^(\d+)x(\d+)$/)
+    if (!m) die('--screen is the screen in points, like 402x874')
+    meta.screen = [+m[1], +m[2]]
+  }
   // Built from another prototype (or one of its variants): the page nests it under that one.
   if (flags.from) {
     const [parent, variant = ''] = String(flags.from).split('/')
@@ -375,6 +382,13 @@ async function shoot() {
   const clicked = new Set(argv.filter((a, i) => argv[i - 1] === '--click'))
   const routes = args.filter(a => !clicked.has(a)).length ? args.filter(a => !clicked.has(a)) : ['']
   const extra = ['theme', 'focus'].filter(k => flags[k]).map(k => `--${k}=${flags[k] === true ? '1' : flags[k]}`)
+  if (flags.ref === true) die('--ref takes a screenshot of the real screen: --ref <png>')
+  if (flags.ref) {
+    // Relative to where Claude stands, or to the app (where `.proto/ref/` lives).
+    const ref = [resolve(flags.ref), resolve(dir, flags.ref)].find(f => existsSync(f))
+    if (!ref) die(`--ref: no file ${flags.ref} here or in ${tilde(dir)}`)
+    extra.push(`--ref=${ref}`)
+  }
   // --click can repeat: each selector is clicked in order before the shot.
   argv.forEach((a, i) => { if (a === '--click' && argv[i + 1]) extra.push(`--click=${argv[i + 1]}`); else if (a.startsWith('--click=')) extra.push(a) })
   const r = run(process.execPath, [join(SKILL, 'scripts', 'shoot.mjs'), s.localUrl, out, ...routes.map(r => r || '/'), ...extra], { stdio: 'inherit' })
@@ -396,7 +410,7 @@ async function snap() {
     const meta = readMeta(slug)
     const ids = Object.keys(meta.variants || {}).filter(id => !only || id === only)
     if (!ids.length) die(`no variant "${only}" in ${slug}`)
-    return ids.map(id => ({ route: `${slug}/${id}`, proto: slug, id, name: meta.variants[id], title: meta.title || slug, kind: meta.kind || 'web' }))
+    return ids.map(id => ({ route: `${slug}/${id}`, proto: slug, id, name: meta.variants[id], title: meta.title || slug, kind: meta.kind || 'web', screen: meta.screen }))
   })
   const out = resolve(flags.out || join(dir, '.proto', 'snaps'))
   mkdirSync(out, { recursive: true })
