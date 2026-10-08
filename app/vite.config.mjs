@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import tailwind from '@tailwindcss/vite'
 import { prototypeServer } from './server.mjs'
@@ -20,7 +20,9 @@ export default defineConfig({
     strictPort: true,
     // Reached through `tailscale serve` as <machine>.<tailnet>.ts.net.
     allowedHosts: ['.ts.net'],
-    fs: { allow: [session.project] },
+    // Vite checks a file's real path, so a project reached through a link (macOS /tmp is
+    // /private/tmp) is allowed by both names.
+    fs: { allow: [session.project, realpathSync(session.project)] },
     // The server's own log and pid live in .proto/; changes there are not edits.
     watch: { ignored: ['**/.proto/**'] },
   },

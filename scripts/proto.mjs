@@ -5,7 +5,7 @@
 //   proto add <slug> --title "…" --variants "A:Name,B:Name" [--ask "…"] [--kind phone] [--screen 402x874]
 //             [--from <slug>/<letter>]   built from that variant: nested under it in the page
 //   proto shoot [route…] [--theme dark] [--focus] [--click <css>]  screenshots, e.g. hero hero/A hero/A/open
-//             [--ref <png>]   also the variant's screen beside that screenshot of the real one
+//             [--ref <png>]   instead, the variant's screen beside that screenshot of the real one
 //   proto snap <slug>[/<letter>]… [--width 672]   static HTML snapshots for a Claude Doc
 //   proto pick <slug> <letter> [--off]   the user chose this variant: marked in the page
 //   proto work <slug>/<letter> [--ask "…"] [--off]   the variant being worked on: pinned in the page
@@ -77,7 +77,12 @@ const short = id => (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id) ? id.slice(0, 8) : id
 const sessionDir = () => join(projectRoot(), '.prototypes', short(sessionId()))
 const sessionFile = dir => join(dir, 'session.json')
 const readSession = dir => readJson(sessionFile(dir), null)
-function patchSession(dir, patch) { const s = { ...readSession(dir), ...patch }; writeJson(sessionFile(dir), s); return s }
+// The page hot-reloads session.json, so a write that changes nothing is skipped.
+function patchSession(dir, patch) {
+  const was = readSession(dir), s = { ...was, ...patch }
+  if (JSON.stringify(s) !== JSON.stringify(was)) writeJson(sessionFile(dir), s)
+  return s
+}
 function need(dir) { if (!existsSync(sessionFile(dir))) die(`no prototype session here yet (${tilde(dir)}). Run: proto up`); return readSession(dir) }
 
 const index = () => readJson(INDEX, []).filter(d => typeof d === 'string')
@@ -453,6 +458,8 @@ async function shoot() {
   // --click can repeat: each selector is clicked in order before the shot.
   argv.forEach((a, i) => { if (a === '--click' && argv[i + 1]) extra.push(`--click=${argv[i + 1]}`); else if (a.startsWith('--click=')) extra.push(a) })
   rtlCheck(dir, routes)
+  const phones = new Set(routes.map(r => r.split('/')[0]).filter(slug => readMeta(dir, slug)?.kind === 'phone'))
+  if (phones.size) extra.push(`--phone=${[...phones].join(',')}`)
   const r = run(process.execPath, [join(SKILL, 'scripts', 'shoot.mjs'), s.localUrl, out, ...routes.map(r => r || '/'), ...extra], { stdio: 'inherit' })
   process.exit(r.status ?? 1)
 }

@@ -2,7 +2,7 @@
 // add two prototypes (one built from the other), screenshot and snapshot them, open a state
 // listed in meta.ts, then stop and delete the session. Run by .github/workflows/smoke.yml on Windows, Linux and macOS.
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { get } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -10,11 +10,15 @@ import { fileURLToPath } from 'node:url'
 
 const skill = dirname(dirname(fileURLToPath(import.meta.url)))
 const scratch = process.env.RUNNER_TEMP || tmpdir()
-const project = join(scratch, 'proto-smoke')
+// The project is reached through a link, as /tmp is on macOS: the app must still serve its files.
+const real = join(scratch, 'proto-smoke')
+const project = join(scratch, 'proto-smoke-link')
 const keepShots = join(scratch, 'proto-shots')
 const app = join(project, '.prototypes', 'smoke')
 rmSync(project, { recursive: true, force: true })
-mkdirSync(project, { recursive: true })
+rmSync(real, { recursive: true, force: true })
+mkdirSync(real, { recursive: true })
+symlinkSync(real, project, 'junction')
 writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'proto-smoke', private: true, dependencies: { react: '^19.2.0' } }))
 
 const fail = msg => {
@@ -120,6 +124,7 @@ const head = readFileSync(screen)
 const size = `${head.readUInt32BE(16)}x${head.readUInt32BE(20)}`
 if (size !== '1206x2622') fail(`phone-A-screen.png is ${size}, not the 402x874 screen at 3x (1206x2622)`)
 if (!existsSync(join(shots, 'phone-A-vs-ref.png'))) fail('proto shoot --ref wrote no phone-A-vs-ref.png')
+if (pngs(shots).some(f => /^phone-A-(desktop|mobile)\.png$/.test(f))) fail('proto shoot --ref should write only the screen and the sheet')
 
 // A right-to-left variant: physical sides are listed, while sides chosen per direction,
 // centring and logical sides are not.
@@ -139,6 +144,8 @@ const rtl = proto(['shoot', 'phone/A'])
 if (!/A\.tsx:3 +ml-3/.test(rtl)) fail('the rtl check did not list ml-3')
 if (!/A\.tsx:5 +paddingRight:/.test(rtl)) fail('the rtl check did not list paddingRight')
 if (/A\.tsx:[2467] /.test(rtl)) fail('the rtl check listed a logical side, centring, a per-direction class or an LTR island')
+// A phone prototype's variant is shot at phone size only.
+if (!pngs(shots).includes('phone-A-mobile.png') || pngs(shots).includes('phone-A-desktop.png')) fail('a phone variant should be shot at phone size only')
 
 proto(['stop'])
 for (let i = 0; i < 40 && await answers(`${local}__proto/status`); i++) await new Promise(r => setTimeout(r, 250))

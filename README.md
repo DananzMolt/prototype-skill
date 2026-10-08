@@ -132,7 +132,7 @@ The link works on any device on your tailnet, and phone prototypes sit in a real
 2. Screenshots the real screen, rebuilds it as "Current" from your assets, tokens and component source, and compares the two side by side and overlaid until they match. Then writes down what the feature must do.
 3. Picks genuinely different directions, each a copy of Current, (where it lives, how it's triggered, how much it shows), five unless you say otherwise.
 4. Writes each variant into the app, and lists what's behind its clicks; you watch them land.
-5. Screenshots every variant on desktop and phone, fixes what breaks, two rounds.
+5. Screenshots every variant on desktop and phone (a phone prototype: phone only), fixes what breaks, two rounds.
 6. Recommends one, says why, and what to take from the others.
 
 ## Where things go
@@ -156,7 +156,7 @@ A design's code loads the first time it's shown, so picked, archived and unopene
 |---|---|
 | `SKILL.md` | What Claude does, step by step |
 | `scripts/proto.mjs` | Session manager: `up`, `add`, `shoot`, `snap`, `archive`, `stop`, `rm`, `keep`, `ls`, `gc` |
-| `scripts/shoot.mjs` | Desktop and phone screenshots through headless Chrome, and with `--ref` a variant beside and over a screenshot of the real screen |
+| `scripts/shoot.mjs` | Desktop and phone screenshots of the stage (no sidebar or bars) through headless Chrome, and with `--ref` a variant beside and over a screenshot of the real screen |
 | `scripts/snap.mjs` | Static HTML snapshots of variants, for sharing in a Claude Doc |
 | `scripts/chrome.mjs` | Finds Chrome, Chromium or Edge for the two above |
 | `app/` | The template each session app is copied from (Vite, Tailwind, the shell, React and Vue adapters) |

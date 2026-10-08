@@ -1,23 +1,26 @@
 #!/usr/bin/env node
-// Screenshot places in a prototype session at desktop and phone size.
-// Usage: shoot.mjs <app-url> <out-dir> <route...> [--theme=dark] [--focus=1] [--click=<css>]... [--ref=<png>]
+// Screenshot places in a prototype session at desktop and phone size: the stage only (the
+// design, or a lobby's grid), without the page's sidebar, bars and floating controls.
+// Usage: shoot.mjs <app-url> <out-dir> <route...> [--theme=dark] [--focus=1] [--click=<css>]... [--ref=<png>] [--phone=<slug,…>]
 // Routes are the page's hash routes: "/" (session lobby), "hero" (a prototype's lobby),
 // "hero/A" (one variant), "hero/A/open" (a state from its meta). Files are named
 // hero-A-desktop.png, hero-A-mobile-dark.png …
 // Normally run through `proto shoot`, which fills in the URL and folder.
 //
-// --ref=<png> (a screenshot of the real screen) adds, per route, the variant's screen alone
+// --ref=<png> (a screenshot of the real screen) shoots, per route, only the variant's screen alone
 // (hero-A-screen.png: a phone at 3x without its bezel, a web stage at 2x) and a contact sheet
 // (hero-A-vs-ref.png): the variant, the reference, and the two laid over each other.
 //
+// --phone lists the phone prototypes: their variants are shot at phone size only, where the phone
+// shows larger than in the desktop shell. Their lobbies still get both.
+//
 // Drives Chrome over the DevTools protocol so the phone shot is a real 390px mobile
 // viewport, and waits for the page to say it is ready instead of sleeping.
-import { spawn } from 'node:child_process'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { findChrome } from './chrome.mjs'
+import { startChrome, stopChrome } from './chrome.mjs'
 
 const args = process.argv.slice(2)
 const flags = Object.fromEntries(args.filter(a => a.startsWith('--') && !a.startsWith('--click=')).map(a => a.slice(2).split('=')))
@@ -28,10 +31,12 @@ if (!rawUrl || !outDir || routes.length === 0) {
   process.exit(1)
 }
 
-const CHROME = findChrome()
+// At the scale Claude Code shows them: it shrinks an image to 2000 px on its long side, which
+// for the whole window was 2000 / 1440 desktop and 2000 / 844 phone. Cropped to the stage at the
+// same scale, a design keeps the detail it had and the shell's pixels are no longer paid for.
 const SIZES = [
-  { name: 'desktop', width: 1440, height: 900, deviceScaleFactor: 2, mobile: false },
-  { name: 'mobile', width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+  { name: 'desktop', width: 1440, height: 900, deviceScaleFactor: 2000 / 1440, mobile: false },
+  { name: 'mobile', width: 390, height: 844, deviceScaleFactor: 2000 / 844, mobile: true },
 ]
 const base = new URL(rawUrl)
 base.hash = ''
@@ -39,19 +44,20 @@ base.searchParams.set('theme', flags.theme === 'dark' ? 'dark' : 'light') // hea
 if (flags.focus) base.searchParams.set('focus', '1')
 const suffix = [flags.focus && 'focus', flags.theme === 'dark' && 'dark', clicks.length && 'clicked'].filter(Boolean).map(s => `-${s}`).join('')
 const fileOf = route => route.replace(/^\/+|\/+$/g, '').replace(/\//g, '-') || 'session'
+const phones = new Set(String(flags.phone || '').split(',').filter(Boolean))
+const phoneOnly = route => { const [slug, variant] = route.replace(/^\/+/, '').split('/'); return !!variant && phones.has(slug) }
 
 mkdirSync(outDir, { recursive: true })
 const profile = mkdtempSync(join(tmpdir(), 'proto-shoot-'))
-const chrome = spawn(CHROME, [
-  '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
-  '--no-first-run', '--no-default-browser-check', '--hide-scrollbars', 'about:blank',
-], { stdio: ['ignore', 'ignore', 'pipe'] })
+const chrome = startChrome([`--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--hide-scrollbars'])
 const cleanup = () => {
-  chrome.kill('SIGKILL')
+  stopChrome(chrome)
   // Chrome can still be writing its profile for a moment after the kill.
   try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) } catch { /* temp dir, the OS clears it */ }
 }
 const timer = setTimeout(() => { console.error('shoot: timed out'); cleanup(); process.exit(1) }, 180_000)
+// Chrome has a process group of its own, so a stop that reaches only this script must take it along.
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { cleanup(); process.exit(1) })
 
 try {
   const wsUrl = await new Promise((ok, fail) => {
@@ -77,10 +83,25 @@ try {
     ws.send(JSON.stringify({ id, method, params, sessionId }))
   })
   const sleep = ms => new Promise(r => setTimeout(r, ms))
+  // Waits, at most 400 ms, until the page's images are in and nothing is still moving (the
+  // first crossfade, a design's entrance), then two frames. The first 200 ms always pass, so a
+  // reveal a design starts from a timer has begun by the time it is looked for. Looping
+  // animations (a spinner, a pulsing placeholder) never finish, so they don't count.
+  const settle = sessionId => send('Runtime.evaluate', { awaitPromise: true, expression: `(async () => {
+    const frame = () => new Promise(r => requestAnimationFrame(r)), end = performance.now() + 400
+    await new Promise(r => setTimeout(r, 200))
+    while (performance.now() < end) {
+      const moving = document.getAnimations().some(a => a.playState === 'running' && a.effect?.getComputedTiming().iterations !== Infinity)
+      if (!moving && [...document.images].every(i => i.complete)) break
+      await frame()
+    }
+    await frame(); await frame()
+  })()` }, sessionId)
 
-  for (const size of SIZES) {
-    for (const route of routes) {
+  for (const size of flags.ref ? [] : SIZES) {
+    for (const route of routes.filter(r => size.mobile || !phoneOnly(r))) {
       // A fresh tab per shot: the page reads its route and theme only at load.
+      const at = [performance.now()]
       const { targetId } = await send('Target.createTarget', { url: 'about:blank' })
       const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true })
       await send('Emulation.setDeviceMetricsOverride', {
@@ -89,13 +110,16 @@ try {
       if (size.mobile) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }, sessionId)
       const url = new URL(base)
       url.hash = '/' + route.replace(/^\/+/, '')
+      at.push(performance.now())
       await send('Page.navigate', { url: url.href }, sessionId)
-      for (let i = 0; i < 100; i++) {
+      let ready = false
+      for (let i = 0; i < 100 && !ready; i++) {
         const { result } = await send('Runtime.evaluate', { expression: 'document.documentElement.dataset.ready === "1"', returnByValue: true }, sessionId)
-        if (result.value) break
-        await sleep(100)
+        if (!(ready = result.value)) await sleep(100)
       }
-      await sleep(400) // let images and the first crossfade settle
+      at.push(performance.now())
+      await settle(sessionId)
+      at.push(performance.now())
       // A state route whose clicks found nothing still shoots, but says so.
       const { result: miss } = await send('Runtime.evaluate', { expression: `[...document.querySelectorAll('[data-missed]')].map(e => e.textContent).join('; ')`, returnByValue: true }, sessionId)
       if (miss.value) console.error(`shoot: ${miss.value} on ${route}`)
@@ -105,10 +129,23 @@ try {
         if (!result.value) console.error(`shoot: nothing matches ${sel} on ${route}`)
         await sleep(400)
       }
-      const { data } = await send('Page.captureScreenshot', { format: 'png' }, sessionId)
+      at.push(performance.now())
+      const { result: stage } = await send('Runtime.evaluate', { returnByValue: true, expression: `(() => {
+        document.querySelector('[data-overlay]')?.style.setProperty('display', 'none')
+        const r = document.querySelector('[data-layers]').getBoundingClientRect()
+        return { x: r.x, y: r.y, width: r.width, height: r.height, scale: 1 }
+      })()` }, sessionId)
+      const { data } = await send('Page.captureScreenshot', { format: 'png', clip: stage.value }, sessionId)
       const file = resolve(outDir, `${fileOf(route)}-${size.name}${suffix}.png`)
       writeFileSync(file, Buffer.from(data, 'base64'))
       console.log(file)
+      at.push(performance.now())
+      // A shot normally takes under a second; a slow one says where its time went.
+      if (at.at(-1) - at[0] > 3000) {
+        const s = i => ((at[i + 1] - at[i]) / 1000).toFixed(1)
+        const why = !ready ? ', the page never said it was ready' : at[2] - at[1] > 4900 ? ', the page stopped waiting for the design after 5 s' : ''
+        console.error(`shoot: slow ${fileOf(route)} ${size.name} ${((at.at(-1) - at[0]) / 1000).toFixed(1)}s (new tab ${s(0)}s, page ready ${s(1)}s${why}, settle ${s(2)}s, clicks ${s(3)}s, capture ${s(4)}s)`)
+      }
       await send('Target.closeTarget', { targetId })
     }
   }
@@ -126,7 +163,7 @@ try {
         if (result.value) break
         await sleep(100)
       }
-      await sleep(400)
+      await settle(sessionId)
       for (const sel of clicks) {
         await send('Runtime.evaluate', { expression: `document.querySelector('[data-layers]').querySelector(${JSON.stringify(sel)})?.click()` }, sessionId)
         await sleep(400)
