@@ -391,8 +391,53 @@ async function shoot() {
   }
   // --click can repeat: each selector is clicked in order before the shot.
   argv.forEach((a, i) => { if (a === '--click' && argv[i + 1]) extra.push(`--click=${argv[i + 1]}`); else if (a.startsWith('--click=')) extra.push(a) })
+  rtlCheck(dir, routes)
   const r = run(process.execPath, [join(SKILL, 'scripts', 'shoot.mjs'), s.localUrl, out, ...routes.map(r => r || '/'), ...extra], { stdio: 'inherit' })
   process.exit(r.status ?? 1)
+}
+
+// A right-to-left prototype placed with left and right breaks the moment it mirrors (and a
+// copy of it inherits the break), so `shoot` lists every physical side it finds. Two kinds are
+// are fine and skipped: anything nested under a `dir="ltr"` element (a clock, a status bar) and
+// centring (`left-1/2 -translate-x-1/2`). So is a side chosen per direction (`rtl:…`, `ltr:…`).
+const PHYSICAL = new RegExp([
+  String.raw`(?<![\w-])-?(?:m[lr]|p[lr]|left|right|scroll-m[lr]|scroll-p[lr])-[\w.\[\]/%-]+`,
+  String.raw`(?<![\w-])(?:text|float|clear)-(?:left|right)\b`,
+  String.raw`(?<![\w-])(?:border|rounded)-(?:[lr]|[tb][lr])(?:-[\w.\[\]/%-]+)?(?![\w-])`,
+  String.raw`(?<![\w-])(?:bg-gradient|bg-linear)-to-(?:[lr]|[tb][lr])\b`,
+  String.raw`\b(?:margin|padding|border)(?:Left|Right)\b\s*:`,
+  String.raw`(?<![\w-])(?:left|right)\s*:\s*[-\d'"\`]`,
+  String.raw`(?<![\w-])(?:margin|padding|border)-(?:left|right)\s*:`,
+  String.raw`linear-gradient\(\s*to (?:left|right)`,
+  String.raw`(?<![\w-])-?translate-x-[\w.\[\]/%-]+`,
+  String.raw`translateX\(`,
+  String.raw`(?<![\w-])(?:origin|bg|object)-(?:left|right|top-left|top-right|bottom-left|bottom-right)\b`,
+  String.raw`(?:transformOrigin|backgroundPosition|objectPosition)\s*:\s*['"\`][^'"\`]*\b(?:left|right)\b`,
+].join('|'), 'g')
+
+function rtlCheck(dir, routes) {
+  for (const slug of new Set(routes.map(r => r.split('/')[0]).filter(Boolean))) {
+    const pdir = join(dir, 'src', 'protos', slug)
+    if (!existsSync(pdir)) continue
+    const files = readdirSync(pdir).filter(f => /\.(tsx|jsx|vue|ts|css)$/.test(f) && f !== 'meta.ts')
+    const texts = files.map(f => readFileSync(join(pdir, f), 'utf8'))
+    if (!texts.some(t => /dir=["'{]+rtl/.test(t))) continue
+    const hits = []
+    files.forEach((f, i) => {
+      // Lines nested under an element marked dir="ltr" (deeper indent) are an island: skipped.
+      let island = -1
+      texts[i].split('\n').forEach((line, n) => {
+      const indent = line.search(/\S/)
+      if (island >= 0 && indent > island) return
+      island = /dir=["'{]+ltr/.test(line) ? indent : -1
+      if (island >= 0) return
+      const bare = line.replace(/(?:rtl|ltr):[^\s"'`]+/g, '').replace(/left-1\/2(?=[^"'`]*-translate-x-1\/2)([^"'`]*)-translate-x-1\/2/g, '$1').replace(/(?<![\w-])translate-x-0(?![\w.])/g, '')
+      const found = [...bare.matchAll(PHYSICAL)].map(m => m[0].trim())
+      if (found.length) hits.push(`  ${f}:${n + 1}  ${found.join(' ')}`)
+      })
+    })
+    if (hits.length) console.error(`rtl: ${slug} is right to left; physical sides to check (start/end unless inside a dir="ltr" island):\n${hits.slice(0, 15).join('\n')}${hits.length > 15 ? `\n  … ${hits.length - 15} more` : ''}`)
+  }
 }
 
 async function snap() {

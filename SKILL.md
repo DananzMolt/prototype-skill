@@ -72,7 +72,7 @@ however good the idea is, so this step comes before any idea.
    the font family and type scale. The shell imports this file too, so new names go in
    `@theme {}` (`--color-brand-ink`), but values that replace Tailwind's own (`--font-sans`,
    `--text-xs`, `--radius-2xl`) go on a class (`.app { --font-sans: … }`) set on each variant's
-   root; otherwise they restyle the shell. Right-to-left products get `dir="rtl"` on the root.
+   root; otherwise they restyle the shell. Right-to-left products: see "Right to left" below.
 4. **The real chrome, once.** Rebuild the app's recurring pieces (tab bar, header, cards,
    buttons, sheets, status bar and home indicator on a phone) in `src/protos/<slug>/parts.tsx`,
    measured from the component source (radii, padding, sizes, blur), not eyeballed. System
@@ -98,6 +98,51 @@ components if it has any (`@import` its token CSS in `src/theme.css`; import pre
 components through `@project/…` and add `@source "../../../src/components";` so their classes
 are generated). With none, choose a restrained palette and type that fit the product, put them
 in a `@theme {}` block, and tell the user they are invented.
+
+## Right to left (Hebrew, Arabic, Persian, Urdu)
+
+When the product reads right to left, every variant (Current and new designs alike) is built
+right to left from its first line. Never draw it left to right and flip it, and never copy a
+screenshot's pixel positions: RTL layout comes from the flow, not from coordinates.
+
+- **Direction.** `dir="rtl"` and `lang` (`he`, `ar`, …) on each variant's root. Everything
+  inside inherits it; set `dir` again only on an LTR island.
+- **Logical sides only.** `ms-`/`me-`, `ps-`/`pe-`, `start-`/`end-`, `text-start`/`text-end`,
+  `rounded-s`/`rounded-e`, `border-s`/`border-e`; rows and grids already begin at the right.
+  Never `ml`/`mr`/`pl`/`pr`/`left`/`right`/`text-left`/`text-right`, in classes or styles. Measure
+  sizes and gaps off the screenshot and let the flow place them. Center with
+  `left-1/2 -translate-x-1/2` (`start-1/2` with a translate goes wrong: translate is physical).
+  Anything that really depends on the side (a scrim behind start-aligned text, a slide-in, a
+  translate) gets both versions: `ltr:bg-linear-to-r rtl:bg-linear-to-l`.
+- **What mirrors.** Reading order: the first tab, step, crumb, chip and carousel page sit at
+  the right, and carousels start from their right end. Back points right and forward points
+  left; `‹` is drill-in. Progress bars, sliders and rings fill from the right. A pushed page
+  enters from the left, swipe back starts at the right edge, and a side drawer opens from the
+  side its button is on. Icons that show a direction
+  (arrows, chevrons, send, reply, undo/redo, trend charts, text alignment) flip with
+  `rtl:-scale-x-100`.
+- **What doesn't mirror (LTR islands).** Numbers joined by symbols (`0/10`, `3.1K`, `+2`,
+  `4–10`), times, phone numbers, Latin names, code, URLs, emails, media controls (play, seek), clocks,
+  checkmarks, logos, and a device's own status bar when the device's language reads LTR
+  (follow the reference). Wrap an LTR run inside a sentence in
+  `<bdi>` or `<span dir="ltr">` so punctuation and the words around it stay put. A plain number
+  (`22.5`, `1,250`) needs no wrapper. Where the project writes ranges, units or dates its own
+  way in its locale files (`8 עד 10 חזרות`), that wins over a symbol.
+- **Type.** The project's own font for that script; confirm it has the glyphs, because a
+  missing one falls back silently and changes every width. No letter-spacing or italics the app
+  doesn't ship (Hebrew has no italics, spacing breaks Arabic joining), no `uppercase`. Arabic
+  needs more line height than Latin. Truncation puts the ellipsis on the left; check what's cut.
+- **Copy.** Real copy in the product's language, from the project's locale files where the
+  string exists. New strings follow the project's rules (gender, register, punctuation). Never
+  English placeholder text in an RTL screen.
+- **Check.** `proto shoot` lists every physical side in an RTL prototype's files (margins,
+  padding, insets, text alignment, corners, borders, gradients, translates, transform origins,
+  image positions), skipping anything nested under a `dir="ltr"` element, centring, and classes
+  chosen per direction (`rtl:…`). Each one it lists is a bug. It can't see an icon that should
+  have flipped; check those in the shots. In every shot, check that text is ragged on the
+  left, that numbers and Latin words sit right inside Hebrew lines, and that arrows point the
+  way they go. A product that also ships LTR: flip the root's `dir` once and check the variant
+  mirrors cleanly.
 
 ## 3. Pick genuinely different directions
 
@@ -176,7 +221,8 @@ proto shoot <slug>/B --click "[data-shoot=add]" # a state reached by clicking (r
 proto shoot <slug>/A --ref <screenshot.png>     # beside and over a screenshot of the real screen
 ```
 
-It prints absolute PNG paths (in the app's `.proto/shots/`). Phone shots are the whole page
+It prints absolute PNG paths (in the app's `.proto/shots/`), and for a right-to-left prototype
+first lists any physical left or right in its files (see Right to left). Phone shots are the whole page
 at 390×844, shell bars included. For states behind an interaction, put `data-shoot="…"` on the
 elements and list the state in `meta.ts`, or pass one `--click` per step. If a state's clicks
 match nothing, `proto shoot` says so. Read every screenshot. For each

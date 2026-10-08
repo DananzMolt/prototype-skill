@@ -7,6 +7,7 @@ A Claude Code plugin that turns "show me a few versions of this" into real, clic
 - **One link per session.** Claude starts a small app before it designs anything and sends you the link. It opens on your phone too.
 - **Live, no reloads.** Every variant shows up as a placeholder and fills in through hot module replacement the moment its file is written.
 - **Built from your product.** When the request changes something that ships, the first variant is "Current": a rebuild of today's screen from your real assets, tokens and component sizes, checked against a screenshot of the real app until they match. Every other variant starts as a copy of it, so they all look like your app, native apps included. The app follows your stack (React or Vue) and can import your web components, so the winner is close to drop-in.
+- **Right to left, built in.** Hebrew and Arabic products are laid out right to left from the first line: logical sides only, mirrored arrows and progress, numbers and Latin kept left to right, real copy. `proto shoot` lists any left or right left behind.
 - **A pick, not a pile.** Claude screenshots every variant, fixes what it sees over two rounds, then recommends one and says why.
 
 ## Install
