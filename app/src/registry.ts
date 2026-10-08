@@ -2,7 +2,7 @@
 // letter (A.tsx, B.tsx … or A.vue …). Variant names live in meta.ts so every stack shares them.
 import type { Proto, State, Variant } from '../shell/shell'
 
-type Meta = { title: string; ask?: string; kind?: 'web' | 'phone'; created?: string; archived?: boolean; from?: string; picked?: string; variants?: Record<string, string>; about?: Record<string, string>; states?: State[] }
+type Meta = { title: string; ask?: string; kind?: 'web' | 'phone'; created?: string; archived?: boolean; from?: string; picked?: string; screen?: [number, number]; variants?: Record<string, string>; about?: Record<string, string>; states?: State[] }
 
 const metas = import.meta.glob<Meta>('./protos/*/meta.ts', { eager: true, import: 'default' })
 // Only files named by a letter are variants; helpers beside them (parts.tsx) have no default
@@ -27,6 +27,6 @@ export const protos: Proto[] = Object.entries(metas)
     const [fp, fv = ''] = typeof meta.from === 'string' ? meta.from.split('/') : []
     // states: what is behind clicks in the variants, each reached by clicking its selectors in order.
     const states = (Array.isArray(meta.states) ? meta.states : []).filter(x => x && typeof x.id === 'string' && x.id && Array.isArray(x.click))
-    return { id, title: meta.title ?? id, ask: meta.ask ?? '', kind: meta.kind ?? 'web', created: meta.created ?? '', archived: !!meta.archived, from: fp ? { proto: fp, variant: fv } : undefined, picked: meta.picked, about: meta.about ?? {}, states, variants }
+    return { id, title: meta.title ?? id, ask: meta.ask ?? '', kind: meta.kind ?? 'web', created: meta.created ?? '', archived: !!meta.archived, from: fp ? { proto: fp, variant: fv } : undefined, picked: meta.picked, screen: meta.screen ?? [393, 852], about: meta.about ?? {}, states, variants }
   })
   .sort((a, b) => a.created.localeCompare(b.created))

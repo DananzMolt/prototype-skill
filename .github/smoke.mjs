@@ -98,6 +98,38 @@ cpSync(shots, keepShots, { recursive: true })
 proto(['snap', 'hero/A'])
 if (!existsSync(join(app, '.proto', 'snaps', 'hero-A.jsx'))) fail('proto snap wrote no hero-A.jsx')
 
+// A phone prototype at a device's size, compared with a reference screenshot. The path is
+// relative to the app, not to where proto runs.
+proto(['add', 'phone', '--title', 'Phone', '--variants', 'A:Current', '--kind', 'phone', '--screen', '402x874'])
+proto(['add', 'phone', '--screen', 'big'], { ok: false })
+if (!readFileSync(join(app, 'src', 'protos', 'phone', 'meta.ts'), 'utf8').includes('"screen": [\n    402,\n    874\n  ]')) fail('phone/meta.ts has no screen [402, 874]')
+proto(['shoot', 'phone/A', '--ref', '.proto/shots/hero-A-desktop.png'])
+const screen = join(shots, 'phone-A-screen.png')
+if (!existsSync(screen)) fail('proto shoot --ref wrote no phone-A-screen.png')
+const head = readFileSync(screen)
+const size = `${head.readUInt32BE(16)}x${head.readUInt32BE(20)}`
+if (size !== '1206x2622') fail(`phone-A-screen.png is ${size}, not the 402x874 screen at 3x (1206x2622)`)
+if (!existsSync(join(shots, 'phone-A-vs-ref.png'))) fail('proto shoot --ref wrote no phone-A-vs-ref.png')
+
+// A right-to-left variant: physical sides are listed, while sides chosen per direction,
+// centring and logical sides are not.
+writeFileSync(join(app, 'src', 'protos', 'phone', 'A.tsx'), [
+  'export default function A() {',
+  '  return <div dir="rtl" className="h-full ps-4">',
+  '    <p className="ml-3 text-start">שלום</p>',
+  '    <span className="absolute left-1/2 -translate-x-1/2 rtl:-scale-x-100 ltr:bg-linear-to-r rtl:bg-linear-to-l">‹</span>',
+  '    <span style={{ paddingRight: 8 }}>0/10</span>',
+  '    <div dir="ltr" className="relative">',
+  '      <span className="absolute left-2">11:35</span>',
+  '    </div>',
+  '  </div>',
+  '}',
+].join('\n'))
+const rtl = proto(['shoot', 'phone/A'])
+if (!/A\.tsx:3 +ml-3/.test(rtl)) fail('the rtl check did not list ml-3')
+if (!/A\.tsx:5 +paddingRight:/.test(rtl)) fail('the rtl check did not list paddingRight')
+if (/A\.tsx:[2467] /.test(rtl)) fail('the rtl check listed a logical side, centring, a per-direction class or an LTR island')
+
 proto(['stop'])
 for (let i = 0; i < 40 && await answers(`${local}__proto/status`); i++) await new Promise(r => setTimeout(r, 250))
 if (await answers(`${local}__proto/status`)) fail('the server still answers after proto stop')

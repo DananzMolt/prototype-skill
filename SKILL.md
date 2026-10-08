@@ -40,30 +40,122 @@ project's own files are untouched), its stack follows the project (React for Rea
 Expo projects, Vue for Vue or Nuxt, React for anything else), it runs a Vite dev server and
 publishes it on the tailnet with `tailscale serve`, so the link opens on the user's phone too.
 
-## 2. Ground it in the real product
+## 2. Ground it in the real product: Current first
 
-- **Tokens.** Put the project's look in the app's `src/theme.css`: an `@import` of the
-  project's token CSS (relative path, e.g. `@import "../../../src/styles/tokens.css";`) or
-  its values in a Tailwind `@theme {}` block. Variants style with Tailwind.
-- **Components.** Variants may import the project's presentational components through
-  `@project/…` (e.g. `import { Button } from '@project/src/components/Button'`). When you do,
-  add `@source "../../../src/components";` (the folder they come from) to `src/theme.css` so
-  their classes are generated.
-- **No tokens or components** (a new or non-web project): choose a restrained palette and type
-  that fit the product, put them in a `@theme {}` block in `src/theme.css`, and tell the user
-  they are invented.
-- Write down in two or three lines what the feature must do. Every variant does all of it.
+When the request changes something that already exists (a screen, a tab, a component), variant
+**A is "Current"**: a rebuild of what ships today, close enough that the user can't tell it from
+a screenshot of the real app at a glance. Every other variant starts as a copy of Current and
+changes only what its direction is about. Variants drawn on an invented look get rejected
+however good the idea is, so this step comes before any idea.
+
+1. **Screenshots of the real thing.** Capture the screen and its states the user will judge
+   against, into the app's `.proto/ref/<slug>/`, and read every one:
+   - Web: run the project's app and screenshot the page in a browser, at 1440 wide (desktop)
+     or 390 wide at 3x (phone).
+   - iOS simulator: `xcrun simctl io <udid> screenshot <file>` on a booted simulator that
+     already shows the screen. Don't drive someone else's simulator to get there; ask.
+   - Mac app: `screencapture -l <window id> <file>`.
+   - Nothing running: ask the user for screenshots. Existing ones in the repo (design folders,
+     store assets, docs) count.
+2. **The real assets.** Import the project's images, illustrations and fonts straight from
+   the repo (`import hero from '@project/apps/app/assets/images/hero.webp'`, `@font-face` with
+   a relative `url()`). Icons: the web package of the same icon set (`phosphor-react-native` →
+   `@phosphor-icons/react`), added with `pnpm add --ignore-workspace` (or `npm i`) in the app's
+   folder before you write variants (adding one reloads the page once). When the device draws
+   icons no web package has (SF Symbols), use the project's own web fallback set if it has
+   one, else the closest set, and say so in Current's `about`. Never an emoji or text glyph.
+3. **The real tokens.** For a web project, the import above. For a native project (React
+   Native, SwiftUI, Android), read its theme source (Tailwind or NativeWind config and
+   `global.css`, a `theme.ts`, asset catalog colors, `colors.xml`) and copy the exact values
+   into `src/theme.css`, with a comment naming the file each came from, converted where the
+   format differs (an RGB triplet becomes `rgb()`, a line-height ratio becomes px). Same for
+   the font family and type scale. The shell imports this file too, so new names go in
+   `@theme {}` (`--color-brand-ink`), but values that replace Tailwind's own (`--font-sans`,
+   `--text-xs`, `--radius-2xl`) go on a class (`.app { --font-sans: … }`) set on each variant's
+   root; otherwise they restyle the shell. Right-to-left products: see "Right to left" below.
+4. **The real chrome, once.** Rebuild the app's recurring pieces (tab bar, header, cards,
+   buttons, sheets, status bar and home indicator on a phone) in `src/protos/<slug>/parts.tsx`,
+   measured from the component source (radii, padding, sizes, blur), not eyeballed. System
+   chrome with no numbers in the source (a native tab bar, Liquid Glass) is measured off the
+   reference at its scale. When the source and the screenshot disagree, the screenshot wins:
+   it is what the user sees. Every variant imports these parts, so the chrome can't drift.
+5. **The device.** A phone prototype's screen is the reference's size in points:
+   `--screen 402x874` for an iPhone 17 shot (1206×2622 px at 3x). Without it the frame is
+   393×852.
+6. **Match before anything else.** Write Current, then
+   `proto shoot <slug>/A --ref .proto/ref/<slug>/<file>.png` (a relative path is looked up from
+   the current folder, then the app's). It writes `<slug>-A-screen.png`, the screen alone (a
+   phone at 3x, so the same pixels as an iPhone shot of the same `--screen`), and
+   `<slug>-A-vs-ref.png`, a sheet with the variant, the reference and the two laid over each
+   other. Read the sheet (the `-screen.png` beside the reference for small detail), list every difference (position, size, color, type, copy, missing
+   pieces), fix, and shoot again until the overlay shows no double edges on the layout. Only
+   then write the other variants.
+
+The feature itself: write down in two or three lines what it must do. Every variant does all of it.
+
+**A new product** (nothing ships yet, so there's no Current): import the project's tokens and
+components if it has any (`@import` its token CSS in `src/theme.css`; import presentational
+components through `@project/…` and add `@source "../../../src/components";` so their classes
+are generated). With none, choose a restrained palette and type that fit the product, put them
+in a `@theme {}` block, and tell the user they are invented.
+
+## Right to left (Hebrew, Arabic, Persian, Urdu)
+
+When the product reads right to left, every variant (Current and new designs alike) is built
+right to left from its first line. Never draw it left to right and flip it, and never copy a
+screenshot's pixel positions: RTL layout comes from the flow, not from coordinates.
+
+- **Direction.** `dir="rtl"` and `lang` (`he`, `ar`, …) on each variant's root. Everything
+  inside inherits it; set `dir` again only on an LTR island.
+- **Logical sides only.** `ms-`/`me-`, `ps-`/`pe-`, `start-`/`end-`, `text-start`/`text-end`,
+  `rounded-s`/`rounded-e`, `border-s`/`border-e`; rows and grids already begin at the right.
+  Never `ml`/`mr`/`pl`/`pr`/`left`/`right`/`text-left`/`text-right`, in classes or styles. Measure
+  sizes and gaps off the screenshot and let the flow place them. Center with
+  `left-1/2 -translate-x-1/2` (`start-1/2` with a translate goes wrong: translate is physical).
+  Anything that really depends on the side (a scrim behind start-aligned text, a slide-in, a
+  translate) gets both versions: `ltr:bg-linear-to-r rtl:bg-linear-to-l`.
+- **What mirrors.** Reading order: the first tab, step, crumb, chip and carousel page sit at
+  the right, and carousels start from their right end. Back points right and forward points
+  left; `‹` is drill-in. Progress bars, sliders and rings fill from the right. A pushed page
+  enters from the left, swipe back starts at the right edge, and a side drawer opens from the
+  side its button is on. Icons that show a direction
+  (arrows, chevrons, send, reply, undo/redo, trend charts, text alignment) flip with
+  `rtl:-scale-x-100`.
+- **What doesn't mirror (LTR islands).** Numbers joined by symbols (`0/10`, `3.1K`, `+2`,
+  `4–10`), times, phone numbers, Latin names, code, URLs, emails, media controls (play, seek), clocks,
+  checkmarks, logos, and a device's own status bar when the device's language reads LTR
+  (follow the reference). Wrap an LTR run inside a sentence in
+  `<bdi>` or `<span dir="ltr">` so punctuation and the words around it stay put. A plain number
+  (`22.5`, `1,250`) needs no wrapper. Where the project writes ranges, units or dates its own
+  way in its locale files (`8 עד 10 חזרות`), that wins over a symbol.
+- **Type.** The project's own font for that script; confirm it has the glyphs, because a
+  missing one falls back silently and changes every width. No letter-spacing or italics the app
+  doesn't ship (Hebrew has no italics, spacing breaks Arabic joining), no `uppercase`. Arabic
+  needs more line height than Latin. Truncation puts the ellipsis on the left; check what's cut.
+- **Copy.** Real copy in the product's language, from the project's locale files where the
+  string exists. New strings follow the project's rules (gender, register, punctuation). Never
+  English placeholder text in an RTL screen.
+- **Check.** `proto shoot` lists every physical side in an RTL prototype's files (margins,
+  padding, insets, text alignment, corners, borders, gradients, translates, transform origins,
+  image positions), skipping anything nested under a `dir="ltr"` element, centring, and classes
+  chosen per direction (`rtl:…`). Each one it lists is a bug. It can't see an icon that should
+  have flipped; check those in the shots. In every shot, check that text is ragged on the
+  left, that numbers and Latin words sit right inside Hebrew lines, and that arrows point the
+  way they go. A product that also ships LTR: flip the root's `dir` once and check the variant
+  mirrors cleanly.
 
 ## 3. Pick genuinely different directions
 
 N is 5 unless the user said otherwise ("/prototype 3 …"). Name each direction in a few words.
 Vary something structural: where it lives, how it is triggered, how much it shows, the
 interaction model. Two directions that differ only in color or spacing are one direction.
+With a Current, the directions are B onwards, and each keeps Current's chrome and visual
+language unless the direction is about them.
 
 ## 4. Add the prototype, then build each variant
 
 ```
-proto add <slug> --title "Hero sections" --ask "<the user's request, in their words>" --variants "A:Split media,B:Big price,C:Map first" [--kind phone] [--from <slug>/<letter>]
+proto add <slug> --title "Hero sections" --ask "<the user's request, in their words>" --variants "A:Current,B:Split media,C:Big price" [--kind phone] [--screen 402x874] [--from <slug>/<letter>]
 ```
 
 `--from` is for a prototype built from part of an existing variant ("take the hero from
@@ -80,7 +172,8 @@ so the user sees them land:
   `meta.ts`. Never rename the files; letters run A … Z, then AA.
 - Default export is the component. Its root fills the stage: `h-full` for anything that is one
   screen (app screens, drawers, sheets, overlays, a bar pinned to the bottom), `min-h-full`
-  for a page that scrolls. `--kind phone` variants go in a 393×852 phone frame.
+  for a page that scrolls. `--kind phone` variants go in a phone frame whose screen is
+  `--screen` (393×852 when not given).
 - `position: fixed` inside a variant is pinned to the stage (or the phone frame), not the
   window, so drawers and sheets can use it.
 - Make it real: realistic content (never lorem ipsum), working hover, focus, open and close,
@@ -125,9 +218,11 @@ proto shoot <slug> <slug>/A <slug>/B …          # lobby plus each variant, des
 proto shoot <slug>/A --theme=dark               # dark mode
 proto shoot <slug>/B/row-menu                   # a state listed in meta.ts
 proto shoot <slug>/B --click "[data-shoot=add]" # a state reached by clicking (repeatable)
+proto shoot <slug>/A --ref <screenshot.png>     # beside and over a screenshot of the real screen
 ```
 
-It prints absolute PNG paths (in the app's `.proto/shots/`). Phone shots are the whole page
+It prints absolute PNG paths (in the app's `.proto/shots/`), and for a right-to-left prototype
+first lists any physical left or right in its files (see Right to left). Phone shots are the whole page
 at 390×844, shell bars included. For states behind an interaction, put `data-shoot="…"` on the
 elements and list the state in `meta.ts`, or pass one `--click` per step. If a state's clicks
 match nothing, `proto shoot` says so. Read every screenshot. For each
@@ -138,10 +233,12 @@ after the last round.
 
 ## 6. Pick one and say why
 
-Choose the best variant yourself. The reply always includes:
+Choose the best variant yourself (never Current; if nothing beats it, say so). The reply always
+includes:
 
 1. The live link, at the top.
-2. Screenshots of the final variants as images with absolute paths
+2. With a Current, its `-vs-ref.png` sheet first, so the user sees it matches. Then screenshots
+   of the final variants as images with absolute paths
    (`![A · Split media](/abs/path/hero-A-desktop.png)`), plus the phone shot wherever a variant
    is a phone screen or changes noticeably on mobile.
 3. One line per variant: its direction and its main weakness.

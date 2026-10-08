@@ -2,9 +2,10 @@
 // proto: one live prototype app per Claude Code session, served on the tailnet.
 //
 //   proto up [--name "Session name"] [--stack react|vue]   create or restart, print the URL
-//   proto add <slug> --title "…" --variants "A:Name,B:Name" [--ask "…"] [--kind phone]
+//   proto add <slug> --title "…" --variants "A:Name,B:Name" [--ask "…"] [--kind phone] [--screen 402x874]
 //             [--from <slug>/<letter>]   built from that variant: nested under it in the page
 //   proto shoot [route…] [--theme dark] [--focus] [--click <css>]  screenshots, e.g. hero hero/A hero/A/open
+//             [--ref <png>]   also the variant's screen beside that screenshot of the real one
 //   proto snap <slug>[/<letter>]… [--width 672]   static HTML snapshots for a Claude Doc
 //   proto pick <slug> <letter> [--off]   the user chose this variant: marked in the page
 //   proto archive <slug> [--off]    proto keep [--off]      proto url    proto stack
@@ -237,6 +238,12 @@ function add() {
   if (flags.title) meta.title = flags.title
   if (flags.ask) meta.ask = flags.ask
   if (flags.kind) meta.kind = flags.kind === 'phone' ? 'phone' : 'web'
+  // The phone frame's screen in points, read off the reference (an iPhone 17 shot is 1206×2622 at 3x: 402x874).
+  if (flags.screen) {
+    const m = String(flags.screen).match(/^(\d+)x(\d+)$/)
+    if (!m) die('--screen is the screen in points, like 402x874')
+    meta.screen = [+m[1], +m[2]]
+  }
   // Built from another prototype (or one of its variants): the page nests it under that one.
   if (flags.from) {
     const [parent, variant = ''] = String(flags.from).split('/')
@@ -375,10 +382,62 @@ async function shoot() {
   const clicked = new Set(argv.filter((a, i) => argv[i - 1] === '--click'))
   const routes = args.filter(a => !clicked.has(a)).length ? args.filter(a => !clicked.has(a)) : ['']
   const extra = ['theme', 'focus'].filter(k => flags[k]).map(k => `--${k}=${flags[k] === true ? '1' : flags[k]}`)
+  if (flags.ref === true) die('--ref takes a screenshot of the real screen: --ref <png>')
+  if (flags.ref) {
+    // Relative to where Claude stands, or to the app (where `.proto/ref/` lives).
+    const ref = [resolve(flags.ref), resolve(dir, flags.ref)].find(f => existsSync(f))
+    if (!ref) die(`--ref: no file ${flags.ref} here or in ${tilde(dir)}`)
+    extra.push(`--ref=${ref}`)
+  }
   // --click can repeat: each selector is clicked in order before the shot.
   argv.forEach((a, i) => { if (a === '--click' && argv[i + 1]) extra.push(`--click=${argv[i + 1]}`); else if (a.startsWith('--click=')) extra.push(a) })
+  rtlCheck(dir, routes)
   const r = run(process.execPath, [join(SKILL, 'scripts', 'shoot.mjs'), s.localUrl, out, ...routes.map(r => r || '/'), ...extra], { stdio: 'inherit' })
   process.exit(r.status ?? 1)
+}
+
+// A right-to-left prototype placed with left and right breaks the moment it mirrors (and a
+// copy of it inherits the break), so `shoot` lists every physical side it finds. Two kinds are
+// are fine and skipped: anything nested under a `dir="ltr"` element (a clock, a status bar) and
+// centring (`left-1/2 -translate-x-1/2`). So is a side chosen per direction (`rtl:…`, `ltr:…`).
+const PHYSICAL = new RegExp([
+  String.raw`(?<![\w-])-?(?:m[lr]|p[lr]|left|right|scroll-m[lr]|scroll-p[lr])-[\w.\[\]/%-]+`,
+  String.raw`(?<![\w-])(?:text|float|clear)-(?:left|right)\b`,
+  String.raw`(?<![\w-])(?:border|rounded)-(?:[lr]|[tb][lr])(?:-[\w.\[\]/%-]+)?(?![\w-])`,
+  String.raw`(?<![\w-])(?:bg-gradient|bg-linear)-to-(?:[lr]|[tb][lr])\b`,
+  String.raw`\b(?:margin|padding|border)(?:Left|Right)\b\s*:`,
+  String.raw`(?<![\w-])(?:left|right)\s*:\s*[-\d'"\`]`,
+  String.raw`(?<![\w-])(?:margin|padding|border)-(?:left|right)\s*:`,
+  String.raw`linear-gradient\(\s*to (?:left|right)`,
+  String.raw`(?<![\w-])-?translate-x-[\w.\[\]/%-]+`,
+  String.raw`translateX\(`,
+  String.raw`(?<![\w-])(?:origin|bg|object)-(?:left|right|top-left|top-right|bottom-left|bottom-right)\b`,
+  String.raw`(?:transformOrigin|backgroundPosition|objectPosition)\s*:\s*['"\`][^'"\`]*\b(?:left|right)\b`,
+].join('|'), 'g')
+
+function rtlCheck(dir, routes) {
+  for (const slug of new Set(routes.map(r => r.split('/')[0]).filter(Boolean))) {
+    const pdir = join(dir, 'src', 'protos', slug)
+    if (!existsSync(pdir)) continue
+    const files = readdirSync(pdir).filter(f => /\.(tsx|jsx|vue|ts|css)$/.test(f) && f !== 'meta.ts')
+    const texts = files.map(f => readFileSync(join(pdir, f), 'utf8'))
+    if (!texts.some(t => /dir=["'{]+rtl/.test(t))) continue
+    const hits = []
+    files.forEach((f, i) => {
+      // Lines nested under an element marked dir="ltr" (deeper indent) are an island: skipped.
+      let island = -1
+      texts[i].split('\n').forEach((line, n) => {
+      const indent = line.search(/\S/)
+      if (island >= 0 && indent > island) return
+      island = /dir=["'{]+ltr/.test(line) ? indent : -1
+      if (island >= 0) return
+      const bare = line.replace(/(?:rtl|ltr):[^\s"'`]+/g, '').replace(/left-1\/2(?=[^"'`]*-translate-x-1\/2)([^"'`]*)-translate-x-1\/2/g, '$1').replace(/(?<![\w-])translate-x-0(?![\w.])/g, '')
+      const found = [...bare.matchAll(PHYSICAL)].map(m => m[0].trim())
+      if (found.length) hits.push(`  ${f}:${n + 1}  ${found.join(' ')}`)
+      })
+    })
+    if (hits.length) console.error(`rtl: ${slug} is right to left; physical sides to check (start/end unless inside a dir="ltr" island):\n${hits.slice(0, 15).join('\n')}${hits.length > 15 ? `\n  … ${hits.length - 15} more` : ''}`)
+  }
 }
 
 async function snap() {
@@ -396,7 +455,7 @@ async function snap() {
     const meta = readMeta(slug)
     const ids = Object.keys(meta.variants || {}).filter(id => !only || id === only)
     if (!ids.length) die(`no variant "${only}" in ${slug}`)
-    return ids.map(id => ({ route: `${slug}/${id}`, proto: slug, id, name: meta.variants[id], title: meta.title || slug, kind: meta.kind || 'web' }))
+    return ids.map(id => ({ route: `${slug}/${id}`, proto: slug, id, name: meta.variants[id], title: meta.title || slug, kind: meta.kind || 'web', screen: meta.screen }))
   })
   const out = resolve(flags.out || join(dir, '.proto', 'snaps'))
   mkdirSync(out, { recursive: true })

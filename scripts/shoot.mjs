@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 // Screenshot places in a prototype session at desktop and phone size.
-// Usage: shoot.mjs <app-url> <out-dir> <route...> [--theme=dark] [--focus=1] [--click=<css>]...
+// Usage: shoot.mjs <app-url> <out-dir> <route...> [--theme=dark] [--focus=1] [--click=<css>]... [--ref=<png>]
 // Routes are the page's hash routes: "/" (session lobby), "hero" (a prototype's lobby),
 // "hero/A" (one variant), "hero/A/open" (a state from its meta). Files are named
 // hero-A-desktop.png, hero-A-mobile-dark.png …
 // Normally run through `proto shoot`, which fills in the URL and folder.
+//
+// --ref=<png> (a screenshot of the real screen) adds, per route, the variant's screen alone
+// (hero-A-screen.png: a phone at 3x without its bezel, a web stage at 2x) and a contact sheet
+// (hero-A-vs-ref.png): the variant, the reference, and the two laid over each other.
 //
 // Drives Chrome over the DevTools protocol so the phone shot is a real 390px mobile
 // viewport, and waits for the page to say it is ready instead of sleeping.
@@ -12,6 +16,7 @@ import { spawn } from 'node:child_process'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { findChrome } from './chrome.mjs'
 
 const args = process.argv.slice(2)
@@ -105,6 +110,66 @@ try {
       writeFileSync(file, Buffer.from(data, 'base64'))
       console.log(file)
       await send('Target.closeTarget', { targetId })
+    }
+  }
+  if (flags.ref) {
+    for (const route of routes) {
+      const { targetId } = await send('Target.createTarget', { url: 'about:blank' })
+      const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true })
+      // Tall enough that the shell shows the phone at 100%; 3x is an iPhone screenshot's scale.
+      await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1400, deviceScaleFactor: 3, mobile: false }, sessionId)
+      const url = new URL(base)
+      url.hash = '/' + route.replace(/^\/+/, '')
+      await send('Page.navigate', { url: url.href }, sessionId)
+      for (let i = 0; i < 100; i++) {
+        const { result } = await send('Runtime.evaluate', { expression: 'document.documentElement.dataset.ready === "1"', returnByValue: true }, sessionId)
+        if (result.value) break
+        await sleep(100)
+      }
+      await sleep(400)
+      for (const sel of clicks) {
+        await send('Runtime.evaluate', { expression: `document.querySelector('[data-layers]').querySelector(${JSON.stringify(sel)})?.click()` }, sessionId)
+        await sleep(400)
+      }
+      // The screen alone: the phone's rounded corners would hide what the reference shows there.
+      const { result: box } = await send('Runtime.evaluate', { returnByValue: true, expression: `(() => {
+        const layers = document.querySelector('[data-layers]'), phone = layers.querySelector('[data-phone]')
+        if (phone) { phone.style.zoom = '1'; phone.style.borderRadius = '0' }
+        const r = (phone || layers).querySelector('[data-mount]').getBoundingClientRect()
+        return { x: r.x, y: r.y, width: r.width, height: r.height, phone: !!phone }
+      })()` }, sessionId)
+      const { x, y, width, height, phone } = box.value
+      const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x, y, width, height, scale: phone ? 1 : 2 / 3 } }, sessionId)
+      const screen = resolve(outDir, `${fileOf(route)}-screen.png`)
+      writeFileSync(screen, Buffer.from(data, 'base64'))
+      console.log(screen)
+      await send('Target.closeTarget', { targetId })
+
+      // Three panels at one height: the variant, the reference, and the variant at half opacity
+      // over the reference, where any shift in size or position shows as a double edge.
+      const H = 1100
+      const img = (src, extra = '') => `<img src="${pathToFileURL(src).href}" style="height:${H}px;display:block;${extra}">`
+      const panel = (label, body) => `<figure style="margin:0"><figcaption style="margin:0 0 12px">${label}</figcaption><div style="position:relative;height:${H}px;width:max-content">${body}</div></figure>`
+      const html = `<!doctype html><body style="margin:0;padding:24px;display:flex;gap:24px;width:max-content;background:#18181b;color:#fff;font:600 22px system-ui">${
+        panel('Variant', img(screen))}${panel('Reference', img(flags.ref))}${panel('Overlay', img(flags.ref) + img(screen, 'position:absolute;inset:0 auto auto 0;opacity:.5'))}</body>`
+      const page = resolve(outDir, `.${fileOf(route)}-vs-ref.html`)
+      writeFileSync(page, html)
+      const t = await send('Target.createTarget', { url: 'about:blank' })
+      const { sessionId: sid } = await send('Target.attachToTarget', { targetId: t.targetId, flatten: true })
+      await send('Emulation.setDeviceMetricsOverride', { width: 2400, height: H + 120, deviceScaleFactor: 1, mobile: false }, sid)
+      await send('Page.navigate', { url: pathToFileURL(page).href }, sid)
+      const { result: size } = await send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
+        while (document.readyState !== 'complete') await new Promise(r => setTimeout(r, 50))
+        await Promise.all([...document.images].map(i => i.decode()))
+        return [document.body.scrollWidth, document.body.scrollHeight]
+      })()` }, sid)
+      const [w, h] = size.value
+      const sheet = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: w, height: h, scale: 1 }, captureBeyondViewport: true }, sid)
+      const file = resolve(outDir, `${fileOf(route)}-vs-ref.png`)
+      writeFileSync(file, Buffer.from(sheet.data, 'base64'))
+      rmSync(page)
+      console.log(file)
+      await send('Target.closeTarget', { targetId: t.targetId })
     }
   }
   ws.close()

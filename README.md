@@ -6,7 +6,8 @@ A Claude Code plugin that turns "show me a few versions of this" into real, clic
 
 - **One link per session.** Claude starts a small app before it designs anything and sends you the link. It opens on your phone too.
 - **Live, no reloads.** Every variant shows up as a placeholder and fills in through hot module replacement the moment its file is written.
-- **Built from your product.** The app follows your stack (React or Vue), uses your design tokens and can import your components, so the winner is close to drop-in.
+- **Built from your product.** When the request changes something that ships, the first variant is "Current": a rebuild of today's screen from your real assets, tokens and component sizes, checked against a screenshot of the real app until they match. Every other variant starts as a copy of it, so they all look like your app, native apps included. The app follows your stack (React or Vue) and can import your web components, so the winner is close to drop-in.
+- **Right to left, built in.** Hebrew and Arabic products are laid out right to left from the first line: logical sides only, mirrored arrows and progress, numbers and Latin kept left to right, real copy. `proto shoot` lists any left or right left behind.
 - **A pick, not a pile.** Claude screenshots every variant, fixes what it sees over two rounds, then recommends one and says why.
 
 ## Install
@@ -107,7 +108,7 @@ Press `F` and the chrome disappears. A small dock stays at the bottom and grows 
 
 ### On your phone
 
-The link works on any device on your tailnet, and phone prototypes sit in a real 393×852 frame.
+The link works on any device on your tailnet, and phone prototypes sit in a real phone frame, sized to your device (393×852 unless the screenshots say otherwise).
 
 <p>
 <picture>
@@ -123,8 +124,8 @@ The link works on any device on your tailnet, and phone prototypes sit in a real
 ## How Claude uses it
 
 1. Starts the session app and sends you the link.
-2. Reads your tokens and nearest existing screens, and writes down what the feature must do.
-3. Picks genuinely different directions (where it lives, how it's triggered, how much it shows), five unless you say otherwise.
+2. Screenshots the real screen, rebuilds it as "Current" from your assets, tokens and component source, and compares the two side by side and overlaid until they match. Then writes down what the feature must do.
+3. Picks genuinely different directions, each a copy of Current, (where it lives, how it's triggered, how much it shows), five unless you say otherwise.
 4. Writes each variant into the app, and lists what's behind its clicks; you watch them land.
 5. Screenshots every variant on desktop and phone, fixes what breaks, two rounds.
 6. Recommends one, says why, and what to take from the others.
@@ -150,7 +151,7 @@ A design's code loads the first time it's shown, so picked, archived and unopene
 |---|---|
 | `SKILL.md` | What Claude does, step by step |
 | `scripts/proto.mjs` | Session manager: `up`, `add`, `shoot`, `snap`, `archive`, `stop`, `rm`, `keep`, `ls`, `gc` |
-| `scripts/shoot.mjs` | Desktop and phone screenshots through headless Chrome |
+| `scripts/shoot.mjs` | Desktop and phone screenshots through headless Chrome, and with `--ref` a variant beside and over a screenshot of the real screen |
 | `scripts/snap.mjs` | Static HTML snapshots of variants, for sharing in a Claude Doc |
 | `scripts/chrome.mjs` | Finds Chrome, Chromium or Edge for the two above |
 | `app/` | The template each session app is copied from (Vite, Tailwind, the shell, React and Vue adapters) |

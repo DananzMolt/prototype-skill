@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Snapshot variants as static HTML modules for a Claude Doc widget.
 // Usage: snap.mjs <app-url> <out-dir> <width> <spec.json>
-// spec = [{ route: "hero/A", proto: "hero", id: "A", name: "Split media", title: "Hero sections", kind: "web"|"phone" }]
+// spec = [{ route: "hero/A", proto: "hero", id: "A", name: "Split media", title: "Hero sections", kind: "web"|"phone", screen?: [w, h] }]
 // Each variant is rendered in headless Chrome, its DOM copied with every style it needs
 // written inline (no classes, no <style>, no scripts), and saved as
 // `<proto>-<id>.jsx`: `export default () => <section style={{…}}>…</section>;`.
@@ -159,8 +159,8 @@ function jsx(n) {
   if (['input', 'img', 'br', 'hr'].includes(n.tag)) return `<${parts.join(' ')}/>`
   return `<${parts.join(' ')}>${kids.map(jsx).join('')}</${n.tag}>`
 }
-const PHONE = { width: '373px', height: '832px', borderRadius: '55px', border: '10px solid #18181b', overflow: 'hidden', boxSizing: 'content-box', background: '#fff', flexShrink: '0', position: 'relative' }
-const phoneFrame = body => `<div style={{"display": "flex", "justifyContent": "center", "zoom": "0.8", "padding": "8px 0"}}><div style={{${Object.entries(PHONE).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(', ')}}}>${body}</div></div>`
+const PHONE = { borderRadius: '55px', border: '10px solid #18181b', overflow: 'hidden', boxSizing: 'content-box', background: '#fff', flexShrink: '0', position: 'relative' }
+const phoneFrame = (body, [w, h]) => `<div style={{"display": "flex", "justifyContent": "center", "zoom": "0.8", "padding": "8px 0"}}><div style={{${Object.entries({ width: `${w}px`, height: `${h}px`, ...PHONE }).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(', ')}}}>${body}</div></div>`
 
 // ---------- drive Chrome ----------
 const CHROME = findChrome()
@@ -195,7 +195,7 @@ try {
     const { result, exceptionDetails } = await send('Runtime.evaluate', { expression: `(${extractor})()`, awaitPromise: true, returnByValue: true }, sessionId)
     if (exceptionDetails) throw new Error(`${v.route}: ${exceptionDetails.exception?.description || exceptionDetails.text}`)
     const body = jsx(result.value)
-    const code = `export default () => ${phone ? phoneFrame(body) : body};`
+    const code = `export default () => ${phone ? phoneFrame(body, v.screen || [393, 852]) : body};`
     const file = resolve(outDir, `${v.proto}-${v.id}.jsx`)
     writeFileSync(file, code)
     index.push({ ...v, file, bytes: code.length, caption: `${v.title} · ${v.id} · ${v.name} · snapshot ${new Date().toISOString().slice(0, 10)}` })
