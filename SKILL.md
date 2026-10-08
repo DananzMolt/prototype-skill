@@ -84,7 +84,7 @@ however good the idea is, so this step comes before any idea.
    393×852.
 6. **Match before anything else.** Write Current, then
    `proto shoot <slug>/A --ref .proto/ref/<slug>/<file>.png` (a relative path is looked up from
-   the current folder, then the app's). It writes `<slug>-A-screen.png`, the screen alone (a
+   the current folder, then the app's). It writes only `<slug>-A-screen.png`, the screen alone (a
    phone at 3x, so the same pixels as an iPhone shot of the same `--screen`), and
    `<slug>-A-vs-ref.png`, a sheet with the variant, the reference and the two laid over each
    other. Read the sheet (the `-screen.png` beside the reference for small detail), list every difference (position, size, color, type, copy, missing
@@ -222,10 +222,13 @@ proto shoot <slug>/A --ref <screenshot.png>     # beside and over a screenshot o
 ```
 
 It prints absolute PNG paths (in the app's `.proto/shots/`), and for a right-to-left prototype
-first lists any physical left or right in its files (see Right to left). Phone shots are the whole page
-at 390×844, shell bars included. For states behind an interaction, put `data-shoot="…"` on the
+first lists any physical left or right in its files (see Right to left). Each shot is the stage
+only (the design, or a lobby's grid), without the page's sidebar and bars, in a 1440×900 or a
+390×844 page; a `--kind phone` prototype's variants get only the phone shot, where the phone
+shows larger. For states behind an interaction, put `data-shoot="…"` on the
 elements and list the state in `meta.ts`, or pass one `--click` per step. If a state's clicks
-match nothing, `proto shoot` says so. Read every screenshot. For each
+match nothing, `proto shoot` says so. Read every screenshot, all of one shoot's in a single
+message (one Read per file, sent together), so they are compared side by side. For each
 variant, note what breaks: alignment, hierarchy, clipped text, overflow on the phone shot,
 weak affordance, too many steps. Fix it and push each variant further in its own direction
 instead of letting them converge. Do 2 rounds unless the user asked for more, and shoot again
@@ -239,8 +242,8 @@ includes:
 1. The live link, at the top.
 2. With a Current, its `-vs-ref.png` sheet first, so the user sees it matches. Then screenshots
    of the final variants as images with absolute paths
-   (`![A · Split media](/abs/path/hero-A-desktop.png)`), plus the phone shot wherever a variant
-   is a phone screen or changes noticeably on mobile.
+   (`![A · Split media](/abs/path/hero-A-desktop.png)`; `-mobile.png` for a phone prototype),
+   plus the phone shot wherever a web variant changes noticeably on mobile.
 3. One line per variant: its direction and its main weakness.
 4. The pick and why it wins for this product and its users, in two to four sentences, and
    what you would take from the runners-up.
@@ -343,6 +346,8 @@ menu in the page.
 - **The link doesn't answer:** `proto up` prints the error and the local link; the server log
   is the app's `.proto/dev.log`.
 - **A variant shows a red error box:** that variant threw. Fix the file; it re-renders.
+- **`proto shoot` prints `slow …`:** a shot took over 3 s, and the line says which step took
+  the time. Pass the line on to the user.
 - **Don't edit** the app's `shell/`, `src/main.ts`, `src/registry.ts` or `src/mount.*`. If the
   shell itself misbehaves, say so; the template is `${CLAUDE_SKILL_DIR}/app/` (replaced on
   every plugin update, so a fix belongs upstream).

@@ -2,12 +2,12 @@
 // storms, navigation through every variant, and idle checks in each view, measuring the dev
 // server (memory, CPU) and the page (JS heap, DOM nodes, CPU). Takes a few minutes.
 //   node .github/stress.mjs            PROTOS=40 VARIANTS=20 EDITS=600 node .github/stress.mjs
-import { execSync, spawn, spawnSync } from 'node:child_process'
+import { execSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { findChrome } from '../scripts/chrome.mjs'
+import { startChrome, stopChrome } from '../scripts/chrome.mjs'
 
 const SKILL = process.env.SKILL || dirname(dirname(fileURLToPath(import.meta.url)))
 const PROJECT = process.env.PROJECT || join(tmpdir(), 'proto-stress')
@@ -47,7 +47,7 @@ function tree(pid) {
 async function serverOver(pid, ms) { const a = tree(pid); const t0 = Date.now(); await sleep(ms); const b = tree(pid); return { rssMB: b.rssMB, cpuPct: 100 * (b.cpuS - a.cpuS) / ((Date.now() - t0) / 1000), procs: b.procs } }
 
 // ---------- Chrome over CDP ----------
-const chrome = spawn(findChrome(), ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${mkdtempSync(join(tmpdir(), 'perf-'))}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
+const chrome = startChrome([`--user-data-dir=${mkdtempSync(join(tmpdir(), 'perf-'))}`])
 const ws = new WebSocket(await new Promise(ok => { let b = ''; chrome.stderr.on('data', d => { b += d; const m = b.match(/ws:\/\/\S+/); if (m) ok(m[0]) }) }))
 await new Promise(ok => { ws.onopen = ok })
 let nid = 0; const pend = new Map()
@@ -155,5 +155,5 @@ await pg.close()
 
 proto('rm')
 rmSync(PROJECT, { recursive: true, force: true })
-chrome.kill('SIGKILL')
+stopChrome(chrome)
 process.exit(0)

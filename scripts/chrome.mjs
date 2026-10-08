@@ -1,6 +1,6 @@
 // Finds a Chromium browser for the headless screenshots: Chrome first, then Chromium, then
 // Edge (on every Windows machine). Set CHROME to a browser's executable to choose one.
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -20,4 +20,17 @@ export function findChrome() {
   }
   console.error('No Chrome, Chromium or Edge found. Install Chrome, or set CHROME to a Chromium browser\'s executable.')
   process.exit(1)
+}
+
+// Headless, in a process group of its own, so stopping it stops its helpers too (renderers, the
+// crash handler). A helper left running keeps the script's pipe open, so the script never
+// exits, and keeps its memory.
+export function startChrome(args) {
+  return spawn(findChrome(), ['--headless=new', '--remote-debugging-port=0', ...args, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'], detached: process.platform !== 'win32', windowsHide: true })
+}
+export function stopChrome(chrome) {
+  if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(chrome.pid), '/T', '/F'])
+  else try { process.kill(-chrome.pid, 'SIGKILL') } catch { /* already gone */ }
+  chrome.kill('SIGKILL')
+  chrome.stderr?.destroy()
 }

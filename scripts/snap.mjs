@@ -6,11 +6,10 @@
 // written inline (no classes, no <style>, no scripts), and saved as
 // `<proto>-<id>.jsx`: `export default () => <section style={{…}}>…</section>;`.
 // Normally run through `proto snap`.
-import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { findChrome } from './chrome.mjs'
+import { startChrome, stopChrome } from './chrome.mjs'
 
 const [rawUrl, outDir, widthArg, specFile] = process.argv.slice(2)
 if (!rawUrl || !outDir || !specFile) { console.error('usage: snap.mjs <app-url> <out-dir> <width> <spec.json>'); process.exit(1) }
@@ -163,12 +162,13 @@ const PHONE = { borderRadius: '55px', border: '10px solid #18181b', overflow: 'h
 const phoneFrame = (body, [w, h]) => `<div style={{"display": "flex", "justifyContent": "center", "zoom": "0.8", "padding": "8px 0"}}><div style={{${Object.entries({ width: `${w}px`, height: `${h}px`, ...PHONE }).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(', ')}}}>${body}</div></div>`
 
 // ---------- drive Chrome ----------
-const CHROME = findChrome()
 mkdirSync(outDir, { recursive: true })
 const profile = mkdtempSync(join(tmpdir(), 'proto-snap-'))
-const chrome = spawn(CHROME, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--hide-scrollbars', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
-const cleanup = () => { chrome.kill('SIGKILL'); try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) } catch { /* temp dir */ } }
+const chrome = startChrome([`--user-data-dir=${profile}`, '--no-first-run', '--hide-scrollbars'])
+const cleanup = () => { stopChrome(chrome); try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) } catch { /* temp dir */ } }
 const timer = setTimeout(() => { console.error('snap: timed out'); cleanup(); process.exit(1) }, 180_000)
+// Chrome has a process group of its own, so a stop that reaches only this script must take it along.
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { cleanup(); process.exit(1) })
 try {
   const wsUrl = await new Promise((ok, fail) => { let b = ''; chrome.stderr.on('data', d => { b += d; const m = b.match(/DevTools listening on (ws:\/\/\S+)/); if (m) ok(m[1]) }); chrome.on('exit', () => fail(new Error('Chrome exited early'))) })
   const ws = new WebSocket(wsUrl)
