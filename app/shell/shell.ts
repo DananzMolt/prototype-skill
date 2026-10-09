@@ -274,7 +274,10 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
 
   // The 10px bezel sits outside the screen, so the frame is the screen plus 20 each way.
   const phoneSize = (proto: Proto) => `width:${proto.screen[0] + 20}px;height:${proto.screen[1] + 20}px`
-  const thumb = (proto: Proto, aspect: string) => `<div data-thumb class="relative w-full overflow-hidden bg-white dark:bg-zinc-950 ${aspect}"><div inert class="pointer-events-none overflow-hidden ${proto.kind === 'phone' ? 'flex items-center justify-center bg-zinc-100 dark:bg-zinc-900' : ''} [contain:layout_paint]" style="width:1200px;height:750px">${proto.kind === 'phone' ? `<div class="${PHONE}" style="${phoneSize(proto)};zoom:.78"><div data-mount class="h-full overflow-hidden"></div></div>` : '<div data-mount class="h-full"></div>'}</div></div>`
+  // A phone's card holds the phone itself, so the phone scale can size it (see fit).
+  const thumb = (proto: Proto, aspect: string) => proto.kind === 'phone'
+    ? `<div data-thumb data-pthumb class="relative flex w-full items-center justify-center overflow-hidden bg-zinc-100 dark:bg-zinc-900 ${aspect}"><div inert class="pointer-events-none ${PHONE} [contain:layout_paint]" style="${phoneSize(proto)}"><div data-mount class="h-full overflow-hidden"></div></div></div>`
+    : `<div data-thumb class="relative w-full overflow-hidden bg-white dark:bg-zinc-950 ${aspect}"><div inert class="pointer-events-none overflow-hidden [contain:layout_paint]" style="width:1200px;height:750px"><div data-mount class="h-full"></div></div></div>`
 
   const frameOf = (proto: Proto) => proto.kind === 'phone'
     ? `<div data-phones class="flex min-h-full items-center justify-center p-6"><div data-phone class="${PHONE} [contain:layout_paint]" style="${phoneSize(proto)}"><div data-mount class="h-full overflow-y-auto"></div></div></div>`
@@ -483,7 +486,17 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   }
 
   function fit() {
-    for (const t of layers.querySelectorAll<HTMLElement>('[data-thumb]')) if (t.clientWidth) (t.firstElementChild as HTMLElement).style.zoom = String(t.clientWidth / 1200)
+    // At Fit a phone card stays 16:10 with the phone as it would sit in a 1200px-wide frame. At a
+    // set scale the card grows to the phone at that size, kept within the card's width.
+    const scale = st.place.view === 'session' ? 0 : st.scale
+    for (const t of layers.querySelectorAll<HTMLElement>('[data-thumb]')) {
+      if (!t.clientWidth) continue
+      const inner = t.firstElementChild as HTMLElement
+      if (!t.hasAttribute('data-pthumb')) { inner.style.zoom = String(t.clientWidth / 1200); continue }
+      t.style.aspectRatio = scale ? 'auto' : ''
+      t.style.paddingBlock = scale ? '20px' : ''
+      inner.style.zoom = String(scale ? Math.min(scale / 100, (t.clientWidth - 24) / parseFloat(inner.style.width)) : .78 * t.clientWidth / 1200)
+    }
     if (!layer) return
     const box = layer.el
     box.style.setProperty('--stage-h', `${box.clientHeight}px`)
