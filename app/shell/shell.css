@@ -17,3 +17,35 @@ body { margin: 0; }
 @keyframes spot-draw { from { stroke-dashoffset: 1 } to { stroke-dashoffset: 0 } }
 @keyframes spot-rise { from { opacity: 0; transform: translateY(4px) scale(.96) } }
 @keyframes spot-fade { from { opacity: 0 } }
+
+/* The comment layer's primary (comments/ui.tsx). A placeholder until the page has an accent of
+   its own: one hue, used by role, never by raw value, and named apart from the project's own
+   tokens, which this stylesheet shares. White on --proto-primary passes AA (6.3:1); the soft
+   pair is 7:1 or better in both themes. Swapping the hue is these two blocks. */
+:root {
+  --proto-primary: #4f46e5;
+  --proto-primary-hover: #4338ca;
+  --proto-primary-fg: #ffffff;
+  --proto-primary-soft: rgb(79 70 229 / 0.09);
+  --proto-primary-soft-fg: #3730a3;
+  --proto-primary-ring: #6366f1;
+}
+.dark {
+  --proto-primary: #5b55eb;
+  --proto-primary-hover: #6d68f0;
+  --proto-primary-fg: #ffffff;
+  --proto-primary-soft: rgb(129 140 248 / 0.16);
+  --proto-primary-soft-fg: #c7d2fe;
+  --proto-primary-ring: #818cf8;
+}
+@theme inline {
+  --color-proto-primary: var(--proto-primary);
+  --color-proto-primary-hover: var(--proto-primary-hover);
+  --color-proto-primary-fg: var(--proto-primary-fg);
+  --color-proto-primary-soft: var(--proto-primary-soft);
+  --color-proto-primary-soft-fg: var(--proto-primary-soft-fg);
+  --color-proto-primary-ring: var(--proto-primary-ring);
+}
+
+/* While commenting, the design is only looked at: a crosshair over all of it. */
+[data-picking] [data-mount] * { cursor: crosshair !important; }

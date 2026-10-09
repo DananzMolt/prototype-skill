@@ -13,6 +13,7 @@ import { dock, edge, smooth, runDock, restoreEdgeLabels, stageHover, canHover, i
 import { hints, fillField, type Hint } from './hints'
 import { createSheet, createMenuSheet } from './sheet'
 import { createSpotlight, showable, showIcon, whereIs } from './spotlight'
+import { createComments } from './comments/index'
 
 export type Variant = { id: string; name: string; file: string; load: () => Promise<unknown> }
 /** Something behind clicks in a prototype's variants (a menu, a drawer, a dialog), reached by
@@ -30,7 +31,22 @@ type Mount = (el: HTMLElement, component: any) => () => void
 type Tool = 'play' | 'all' | 'compare'
 type Place = { view: 'session' } | { view: 'proto'; proto: string } | { view: 'variant'; proto: string; variant: string; state?: string; tool?: Tool }
 type Layer = { el: HTMLElement; refs: unknown[]; ready: Promise<unknown>; dispose: () => void; player?: { toggle: () => void; jump: (i: number) => void } }
-type Status = { lastEdit: number; keep: boolean; idleHours: number; deleteDays: number }
+// Comments sent from the page to the agent running the session (`proto inbox`), and what came back.
+export type Inbox = {
+  new: number
+  listening: boolean
+  batches: { id: string; at: string; state: 'sent' | 'seen' | 'done'; reply: { text: string; at: string; by?: 'claude' | 'codex' } | null
+    comments: { n: number; route: string; done: boolean; reply: { text: string; at: string; by?: 'claude' | 'codex' } | null }[] }[]
+}
+/** An element a comment is on or tags. Rect is in CSS px from the variant root's top left. */
+export type Pinned = { selector?: string; shoot?: string; src?: string; tag?: string; text?: string; rect?: { x: number; y: number; w: number; h: number } }
+/** One send: route is <slug>/<letter>[/<state>]; images are data URLs (png, jpeg, webp). */
+export type CommentBatch = {
+  comments: { route: string; text: string; point?: { x: number; y: number }; target?: Pinned; tags?: Pinned[]; images?: { dataUrl: string; name?: string }[] }[]
+  viewport?: { w: number; h: number; phone?: boolean }
+  theme?: 'light' | 'dark'
+}
+type Status = { lastEdit: number; keep: boolean; idleHours: number; deleteDays: number; inbox?: Inbox }
 
 const PHONE = 'shrink-0 overflow-hidden rounded-[55px] border-[10px] border-zinc-900 bg-white text-zinc-900 shadow-xl dark:border-zinc-700 dark:bg-black dark:text-white'
 // The phone scale: Fit (0) or a percentage. The menu offers these in a row and a slider for
@@ -237,6 +253,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       <div data-zone>
         <div data-layers class="absolute inset-0 overflow-hidden" style="right:var(--hw,0px);bottom:var(--pill-h,0px)"></div>
         <div data-spot class="pointer-events-none absolute inset-0 z-[15] overflow-hidden" style="right:var(--hw,0px);bottom:var(--pill-h,0px)"></div>
+        <div data-comments class="pointer-events-none absolute inset-0 z-[16]" style="right:var(--hw,0px);bottom:var(--pill-h,0px)"></div>
         <div data-overlay></div>
         <div data-pill></div>
         <div data-scale-card></div>
@@ -246,6 +263,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     <div data-drawer></div>
     <div data-sheet></div>
     <div data-menu-sheet></div>
+    <div data-comments-sheet></div>
   </div>`
   const side = root.querySelector<HTMLElement>('[data-side]')!
   const grip = root.querySelector<HTMLElement>('[data-grip]')!
@@ -728,6 +746,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
         ${where ? `${sep}<span class="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md bg-sky-500/10 px-2 font-medium text-sky-700 dark:text-sky-300">${pv!.tool ? ic(TOOLS[pv!.tool].icon, 'size-3.5') : ''}<span dir="auto" class="truncate">${whereHtml}</span></span>` : ''}
       </nav>
       <div class="ml-auto flex items-center gap-1">
+        ${commentBtn()}
         <div class="hidden sm:block">${seg()}</div>
         ${phones ? `<div class="relative"><button data-act="open:scale" aria-expanded="${st.open === 'scale'}" class="${IB} text-xs tabular-nums ${st.open === 'scale' ? 'bg-zinc-900/5 text-zinc-900 dark:bg-white/10 dark:text-white' : ''}">${ic('phone')}<span data-scale-label>${scaleLabel()}</span></button>${pop(st.open === 'scale', scaleMenu, 'right-0 top-11 w-72')}</div>` : ''}
       </div></div>`
@@ -825,7 +844,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const vs = p ? visible(p) : []
     const vid = st.place.view === 'variant' ? st.place.variant : ''
     const at = vs.findIndex(v => v.id === vid)
-    const key = pillOn() ? JSON.stringify([p!.id, p!.kind, vid, vs.map(v => [v.id, v.name]), p!.variants.length, editing(p!.id, vid), st.sheet]) : ''
+    const key = pillOn() ? JSON.stringify([p!.id, p!.kind, vid, vs.map(v => [v.id, v.name]), p!.variants.length, editing(p!.id, vid), st.sheet, pillComments()]) : ''
     if (key !== pillKey) {
       pillKey = key
       if (!key) { pill.innerHTML = ''; closeCard(true) }
@@ -838,11 +857,12 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
             <button data-act="lobby:proto" aria-label="All variants" aria-pressed="${st.place.view === 'proto'}" class="${pillBtn} ${st.place.view === 'proto' ? '!bg-white !text-zinc-900' : ''}">${ic('grid')}</button>
             <span class="mx-0.5 h-5 w-px shrink-0 bg-white/15"></span>
             <button data-act="variant:${prev.id}" aria-label="Previous variant: ${prev.id} ${esc(prev.name)}" class="${pillBtn}">${ic('left')}</button>
-            <div data-pill-handle role="button" tabindex="0" aria-label="${v ? `${v.id} ${esc(v.name)}, ${at + 1} of ${vs.length}. ` : ''}Show all variants" class="flex h-10 w-40 min-w-0 cursor-grab touch-none select-none items-center justify-center gap-1.5 rounded-full px-2 active:bg-white/10">
+            <div data-pill-handle role="button" tabindex="0" aria-label="${v ? `${v.id} ${esc(v.name)}, ${at + 1} of ${vs.length}. ` : ''}Show all variants" class="flex h-10 ${commentHost() ? 'w-28' : 'w-40'} min-w-0 cursor-grab touch-none select-none items-center justify-center gap-1.5 rounded-full px-2 active:bg-white/10">
               ${v ? `<b data-pill-id class="shrink-0 text-[15px]">${v.id}</b><span data-pill-name dir="auto" class="min-w-0 truncate text-white/70">${esc(v.name)}</span><span data-pill-n class="shrink-0 text-[11px] tabular-nums text-white/40">${at + 1}/${vs.length}</span>${editing(p!.id, v.id) ? pulse('size-1.5') : ''}`
                 : `<span class="truncate font-medium">All variants</span><span class="shrink-0 text-[11px] tabular-nums text-white/40">${vs.length}</span>`}
             </div>
             <button data-act="variant:${next.id}" aria-label="Next variant: ${next.id} ${esc(next.name)}" class="${pillBtn}">${ic('right')}</button>
+            ${commentHost() ? (c => `<span class="mx-0.5 h-5 w-px shrink-0 bg-white/15"></span><button data-act="comment:tap" data-shoot="comment" aria-label="Comments" aria-pressed="${c.picking}" class="${pillBtn} relative ${c.picking ? '!bg-proto-primary !text-proto-primary-fg' : ''}">${ic(c.picking ? 'x' : 'comment', 'size-5')}${c.drafts && !c.picking ? `<span class="absolute -right-0.5 -top-0.5 grid size-4 place-items-center rounded-full bg-proto-primary text-[10px] font-semibold text-proto-primary-fg ring-2 ring-zinc-900">${c.drafts}</span>` : ''}</button>`)(comments.counts()) : ''}
             ${p!.kind === 'phone' ? `<span class="mx-0.5 h-5 w-px shrink-0 bg-white/15"></span><button data-pill-scale aria-label="Phone scale" aria-expanded="false" class="h-10 min-w-12 shrink-0 rounded-full px-2.5 text-xs font-medium tabular-nums text-white/70 transition-colors duration-200 active:bg-white/10"><span data-scale-label>${scaleLabel()}</span></button>` : ''}
           </div>
         </div>`
@@ -1114,7 +1134,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
           return `<button data-act="pvs:${esc(q.id)}:${v.id}:${esc(id)}" aria-current="${lighted}" class="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left ${lighted ? ON : ROW}">${dot(q, v.id, x, lighted)}<span class="min-w-0 flex-1"><span class="flex items-center gap-1.5 leading-4 ${lighted ? 'font-medium text-zinc-900 dark:text-white' : ''}"><span dir="auto" class="truncate">${esc(x?.name ?? 'At rest')}</span>${lighted && tool === 'play' ? ic('play', 'size-3 text-sky-500') : ''}</span>${note && x ? `<span dir="auto" class="mt-1 block text-[11px] leading-[15px] ${noteCls(q, v.id, x)}">${esc(note)}</span>` : ''}</span></button>`
         }
         return `<div class="group/v relative flex h-8 items-center rounded-lg ${rowOn ? `${ON} font-medium` : ROW}">
-            <button data-act="pv:${esc(q.id)}:${v.id}" aria-current="${rowOn}" class="flex h-8 min-w-0 flex-1 items-center gap-2.5 pl-2 pr-1 text-left"><span class="w-4 shrink-0 text-center text-xs font-semibold ${on ? '' : 'text-zinc-400'}">${v.id}</span><span dir="auto" class="min-w-0 truncate ${on ? 'text-zinc-900 dark:text-white' : ''}">${esc(v.name)}</span>${v.id === pickOf(q) ? `<span title="Picked">${ic('check', `size-3.5 ${PICK}`)}</span>` : ''}${w?.p === q && w.v === v ? `<span title="Working on">${ic('pin', 'size-3.5 text-emerald-600 dark:text-emerald-400')}</span>` : ''}${editing(q.id, v.id) ? pulse('size-1.5') : ''}</button>
+            <button data-act="pv:${esc(q.id)}:${v.id}" aria-current="${rowOn}" class="flex h-8 min-w-0 flex-1 items-center gap-2.5 pl-2 pr-1 text-left"><span class="w-4 shrink-0 text-center text-xs font-semibold ${on ? '' : 'text-zinc-400'}">${v.id}</span><span dir="auto" class="min-w-0 truncate ${on ? 'text-zinc-900 dark:text-white' : ''}">${esc(v.name)}</span>${v.id === pickOf(q) ? `<span title="Picked">${ic('check', `size-3.5 ${PICK}`)}</span>` : ''}${w?.p === q && w.v === v ? `<span title="Working on">${ic('pin', 'size-3.5 text-emerald-600 dark:text-emerald-400')}</span>` : ''}${editing(q.id, v.id) ? pulse('size-1.5') : ''}${openComments(q.id, v.id)}</button>
             ${ks.length ? `<span class="shrink-0 px-1" title="${ks.length} built from ${v.id}">${ic('branch', 'size-3.5 text-sky-500')}</span>` : ''}
             ${tool ? `<button data-act="tool:${esc(q.id)}:${v.id}:${tool}" title="${TOOLS[tool].name} is on · click to stop" aria-label="Stop ${TOOLS[tool].name}" class="grid size-7 shrink-0 place-items-center rounded-md bg-sky-500/10 text-sky-700 hover:bg-sky-500/20 dark:text-sky-300">${ic(TOOLS[tool].icon, 'size-3.5')}</button>` : ''}
             ${tools.length && q.states.length ? `<button data-act="open:${key}" aria-label="Tools for ${v.id}" aria-haspopup="menu" aria-expanded="${menu}" title="Autoplay, all states, compare" class="size-7 shrink-0 place-items-center rounded-md ${menu || tool ? 'grid' : 'hidden group-hover/v:grid group-focus-within/v:grid [@media(hover:none)]:grid'} ${menu ? ON : 'text-zinc-400 hover:bg-zinc-900/[.06] hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white'}">${ic('dots')}</button>${pop(menu, menuHtml, 'inset-x-0 top-9 min-w-56')}` : ''}
@@ -1216,6 +1236,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const p = cur()
     const here = st.place.view === 'variant' ? st.place : null
     switch (name) {
+      case 'comment': return arg === 'tap' ? comments.tap() : comments.act.toggle()
       // A state leaf: that variant in that state. Comparing keeps comparing.
       case 'pvs': {
         const keep = here?.tool === 'compare' && here.proto === arg && here.variant === arg2
@@ -1321,6 +1342,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); return act('side', (wide() ? st.side : st.drawer) ? '0' : '1', '') }
     if (e.key === 'Escape') {
       if (tryEsc()) return
+      if (comments.escape()) return
       if (card && card.phase !== 'exit') return closeCard()
       if (st.open) { st.open = null; return render() }
       if (st.drawer) { st.drawer = false; return render() }
@@ -1337,6 +1359,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       return
     }
     if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && st.place.view === 'variant') { e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1) }
+    else if (e.key === 'c' && commentHost()) { e.preventDefault(); comments.act.toggle() }
     else if (e.key === 'f' && st.place.view === 'variant') act(st.focus ? 'unfocus' : 'focus', '', '')
     else if (e.key === 'w' && workOf()) act('work', 'go', '')
   })
@@ -1389,18 +1412,108 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const valueOf = (h: Extract<Hint, { kind: 'value' }>) => { try { return String(typeof h.value === 'function' ? h.value() : h.value) } catch { return '' } }
   const flash = () => { clearTimeout(hintTimer); hintTimer = window.setTimeout(() => { hintSaid = ''; hintCopied = -1; paintHints() }, 1400) }
 
-  function paintHints() { paintPanel(); syncSpot() }
+  // ---------- comments ----------
+  // Commenting lives in the stage's own layer (comments/), over a variant on the page and nowhere
+  // else: not a lobby, not a tool (all states, compare, autoplay), not focus mode, not a shot.
+  const phoneMq = matchMedia('(max-width: 639px)')
+  const HANDLE = 'flex h-9 items-center gap-1.5 rounded-l-lg bg-white/95 pl-2.5 pr-3 text-xs font-medium text-zinc-900 shadow-lg shadow-black/10 ring-1 ring-black/10 backdrop-blur hover:bg-white dark:bg-zinc-900/95 dark:text-zinc-100 dark:ring-white/15 dark:hover:bg-zinc-900'
+  const commentHost = () => !st.focus && q.get('hints') !== '0' ? hintHost() : null
+  // The side panel carries the list; a phone has it as a sheet from the pill.
+  const railOn = () => !!commentHost() && !phoneMq.matches
+  const comments = createComments({
+    layer: zone.querySelector<HTMLElement>('[data-comments]')!,
+    mount: commentHost,
+    go: (proto, variant, state) => go({ view: 'variant', proto, variant, ...(state ? { state } : {}) }),
+    send: sendBatch,
+    dark: () => st.dark,
+  }, session.id)
+  const commentsKeyOf = () => { const c = comments.counts(); return JSON.stringify([c.drafts, c.total, c.picking, c.held, [...c.by]]) }
+  let commentsKey = commentsKeyOf()
+  const pillComments = () => commentHost() ? commentsKeyOf() : ''
+  /** Open (not yet done) comments on a variant, as a count in the tree. */
+  const openComments = (proto: string, variant: string) => {
+    const n = comments.counts().by.get(`${proto}/${variant}`) ?? 0
+    return n ? `<span title="${n} open comment${n === 1 ? '' : 's'}" class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-proto-primary-soft px-1 text-[10px] font-semibold tabular-nums text-proto-primary-soft-fg">${n}</span>` : ''
+  }
+  const commentBtn = () => {
+    if (!commentHost()) return ''
+    const on = comments.counts().picking
+    return `<button data-act="comment:toggle" data-shoot="comment" aria-pressed="${on}" title="Comment on the design · C (⌥-click comments on one thing)" class="hidden h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium sm:inline-flex ${on ? 'bg-proto-primary text-proto-primary-fg hover:bg-proto-primary-hover' : 'text-zinc-600 ring-1 ring-inset ring-black/10 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-300 dark:ring-white/15 dark:hover:bg-white/10 dark:hover:text-white'}">${ic('comment')}${on ? 'Click to comment' : 'Comment'}<kbd class="rounded px-1 font-sans text-[11px] ${on ? 'bg-white/20' : 'text-zinc-400 ring-1 ring-inset ring-black/10 dark:ring-white/15'}">${on ? 'Esc' : 'C'}</kbd></button>`
+  }
+  let seenInbox: Inbox | undefined
+  /** Tells the comment layer where the page is and what the server says; repaints the chrome that shows counts. */
+  function syncComments() {
+    const host = commentHost(), pl = st.place, p = cur()
+    comments.setPlace(host && pl.view === 'variant' && p ? { proto: pl.proto, variant: pl.variant, ...(pl.state ? { state: pl.state } : {}), phone: phoneMq.matches, title: p.title } : null)
+    if (st.status?.inbox !== seenInbox) { seenInbox = st.status?.inbox; comments.setInbox(seenInbox) }
+    zone.toggleAttribute('data-picking', !!host && comments.counts().picking)
+  }
+  comments.mountSheet(root.querySelector<HTMLElement>('[data-comments-sheet]')!)
+  // The chrome shows counts (the bar's button, the pill, the tree): repaint it when they change.
+  comments.store.subscribe(() => {
+    const k = commentsKeyOf()
+    if (k === commentsKey) return
+    commentsKey = k
+    render()
+  })
+  phoneMq.addEventListener('change', () => paintHints())
+
+  // ---------- the side panel: comments, and Try it ----------
+  // One panel, two tabs. Docked it narrows the stage; narrower it is a sheet over the design;
+  // closed, a handle per tab on the edge (above the phone's pill). The comments tab is a React
+  // root made once: the panel's frame is made once too, and only the Try it body and the tab
+  // strip are repainted, so nothing the comment list is showing is ever rebuilt under it.
+  hintBox.innerHTML = `<div data-handles></div>
+    <div data-panel role="complementary" class="absolute inset-y-0 right-0 z-20 hidden flex-col bg-white text-[13px] text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+      <div data-tabs class="flex h-11 shrink-0 items-center gap-0.5 border-b border-black/[.07] pl-1.5 pr-1 dark:border-white/10"></div>
+      <div data-try class="min-h-0 flex-1 overflow-y-auto overscroll-contain" hidden></div>
+      <div data-cbody class="min-h-0 flex-1" hidden></div>
+      <div data-caveats></div>
+    </div>`
+  const handles = hintBox.querySelector<HTMLElement>('[data-handles]')!
+  const panel = hintBox.querySelector<HTMLElement>('[data-panel]')!
+  const tabsEl = hintBox.querySelector<HTMLElement>('[data-tabs]')!
+  const tryEl = hintBox.querySelector<HTMLElement>('[data-try]')!
+  const cbody = hintBox.querySelector<HTMLElement>('[data-cbody]')!
+  const caveatEl = hintBox.querySelector<HTMLElement>('[data-caveats]')!
+  let tab: 'comments' | 'try' = 'comments'
+  comments.mountRail(cbody)
+
+  function paintHints() { syncComments(); paintPanel(); syncSpot() }
   function paintPanel() {
     const list = hintList()
-    const docked = !!list.length && hintsOpen && wideMq.matches
+    const tabs: ('comments' | 'try')[] = [...(railOn() ? ['comments' as const] : []), ...(list.length ? ['try' as const] : [])]
+    const docked = tabs.length > 0 && hintsOpen && wideMq.matches
     zone.style.setProperty('--hw', docked ? `${HINTS_W}px` : '0px')
     if (docked !== hintsDocked) { hintsDocked = docked; requestAnimationFrame(fit) }
-    if (!list.length) { hintBox.innerHTML = ''; return }
+    if (!tabs.length) { panel.className = 'hidden'; handles.innerHTML = ''; tryEl.innerHTML = ''; return }
+    if (!tabs.includes(tab)) tab = tabs[0]
     const count = list.filter(h => h.kind !== 'caveat').length
+    const c = comments.counts()
     if (!hintsOpen) {
-      hintBox.innerHTML = `<button data-hint="open" title="What to type and try in this design" class="absolute bottom-4 right-0 z-20 flex h-9 items-center gap-1.5 rounded-l-lg bg-white/95 pl-2.5 pr-3 text-xs font-medium text-zinc-900 shadow-lg shadow-black/10 ring-1 ring-black/10 backdrop-blur hover:bg-white dark:bg-zinc-900/95 dark:text-zinc-100 dark:ring-white/15 dark:hover:bg-zinc-900">${ic('key', 'size-3.5 text-amber-500')}Try it<span class="tabular-nums text-zinc-400">${count}</span></button>`
+      panel.className = 'hidden'
+      handles.innerHTML = `<div class="absolute bottom-[calc(var(--pill-h,0px)+1rem)] right-0 z-20 flex flex-col items-end gap-2">
+        ${tabs.includes('comments') ? `<button data-hint="open:comments" title="Comments on this design · C" class="${HANDLE}">${ic('comment', 'size-3.5 text-proto-primary-ring')}Comments${c.total ? `<span class="tabular-nums text-zinc-400">${c.total}</span>` : ''}</button>` : ''}
+        ${tabs.includes('try') ? `<button data-hint="open:try" title="What to type and try in this design" class="${HANDLE}">${ic('key', 'size-3.5 text-amber-500')}Try it<span class="tabular-nums text-zinc-400">${count}</span></button>` : ''}
+      </div>`
+      tryEl.innerHTML = ''
       return
     }
+    handles.innerHTML = ''
+    const wide = wideMq.matches
+    panel.className = `absolute inset-y-0 right-0 z-20 flex flex-col bg-white text-[13px] text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 ${wide ? 'border-l border-black/[.07] dark:border-white/10' : 'w-[min(18rem,88%)] shadow-2xl shadow-black/30'}`
+    panel.style.width = wide ? `${HINTS_W}px` : ''
+    const tabBtn = (t: 'comments' | 'try') => {
+      const on = tab === t, n = t === 'comments' ? c.total : count
+      return `<button data-hint="tab:${t}" aria-pressed="${on}" class="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${on ? 'bg-zinc-900/[.06] text-zinc-900 dark:bg-white/10 dark:text-white' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'}">${ic(t === 'comments' ? 'comment' : 'key', `size-3.5 ${t === 'try' ? 'text-amber-500' : on ? 'text-proto-primary-ring' : ''}`)}${t === 'comments' ? 'Comments' : 'Try it'}${n ? `<span class="tabular-nums text-zinc-400">${n}</span>` : ''}</button>`
+    }
+    const canFill = tab === 'try' && list.some(h => h.kind === 'value' && h.fill)
+    tabsEl.innerHTML = `${tabs.map(tabBtn).join('')}<span class="ml-auto"></span>
+      ${canFill ? `<button data-hint="fill" title="Type the values into this design's fields" class="inline-flex h-7 items-center gap-1.5 rounded-md bg-zinc-900 px-2.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200">${ic(hintSaid === 'Filled' ? 'check' : 'fill', 'size-3.5')}${hintSaid || 'Fill in'}</button>` : ''}
+      <button data-hint="close" class="${IB} h-7 min-w-7 px-1" aria-label="Close panel" title="Close">${ic(wide ? 'right' : 'x', 'size-3.5')}</button>`
+    cbody.hidden = tab !== 'comments'
+    tryEl.hidden = tab !== 'try'
+    if (tab !== 'try') { tryEl.innerHTML = ''; caveatEl.innerHTML = ''; return }
     const all = list.map((h, i) => ({ h, i }))
     const pick = <K extends Hint['kind']>(k: K) => all.filter(x => x.h.kind === k) as { h: Extract<Hint, { kind: K }>; i: number }[]
     const values = pick('value'), tries = pick('try'), switches = pick('switch'), events = pick('event'), caveats = pick('caveat')
@@ -1418,23 +1531,11 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     }
     const switchRow = ({ h, i }: { h: Extract<Hint, { kind: 'switch' }>; i: number }) => `<div class="flex flex-wrap gap-1 px-2 py-1">${h.options.map((o, j) => `<button data-hint="switch:${i}:${j}" aria-pressed="${o === h.value}" class="h-7 rounded-md px-2.5 text-xs ${o === h.value ? 'bg-zinc-900 font-medium text-white dark:bg-white dark:text-zinc-900' : 'bg-zinc-900/[.04] text-zinc-600 hover:bg-zinc-900/[.08] dark:bg-white/[.06] dark:text-zinc-300 dark:hover:bg-white/10'}">${bd(o)}</button>`).join('')}</div>`
     const eventRow = ({ h, i }: { h: Extract<Hint, { kind: 'event' }>; i: number }) => `<button data-hint="event:${i}" class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-zinc-900/[.04] dark:hover:bg-white/[.06]">${ic('bolt', 'size-3.5 text-amber-500')}${bd(h.label)}</button>`
-    const canFill = values.some(x => x.h.fill)
-    const wide = wideMq.matches
-    hintBox.innerHTML = `<div role="complementary" aria-label="Try it" class="absolute inset-y-0 right-0 z-20 flex flex-col bg-white text-[13px] text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 ${wide ? 'border-l border-black/[.07] dark:border-white/10' : 'w-[min(18rem,88%)] shadow-2xl shadow-black/30'}" ${wide ? `style="width:${HINTS_W}px"` : ''}>
-      <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-black/[.07] pl-3 pr-1 dark:border-white/10">
-        ${ic('key', 'size-3.5 text-amber-500')}<span class="text-xs font-medium">Try it</span>
-        <span class="ml-auto"></span>
-        ${canFill ? `<button data-hint="fill" title="Type the values into this design's fields" class="inline-flex h-7 items-center gap-1.5 rounded-md bg-zinc-900 px-2.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200">${ic(hintSaid === 'Filled' ? 'check' : 'fill', 'size-3.5')}${hintSaid || 'Fill in'}</button>` : ''}
-        <button data-hint="close" class="${IB} h-7 min-w-7 px-1" aria-label="Close Try it" title="Close">${ic(wide ? 'right' : 'x', 'size-3.5')}</button>
-      </div>
-      <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        ${values.length ? sec('To type', values.map(value).join('')) : ''}
+    tryEl.innerHTML = `${values.length ? sec('To type', values.map(value).join('')) : ''}
         ${tries.length ? sec('Things to try', tries.map(tryRow).join(''), `${tries.filter(x => x.h.done).length}/${tries.length}`) : ''}
         ${switches.map(x => sec(x.h.label, switchRow(x))).join('')}
-        ${events.length ? sec('Make it happen', events.map(eventRow).join('')) : ''}
-      </div>
-      ${caveats.length ? `<div class="shrink-0 border-t border-black/[.06] px-3 py-2 text-[11px] leading-4 text-zinc-500 dark:border-white/10">${caveats.map(x => `<p dir="auto">${esc(x.h.text)}</p>`).join('')}</div>` : ''}
-    </div>`
+        ${events.length ? sec('Make it happen', events.map(eventRow).join('')) : ''}`
+    caveatEl.innerHTML = caveats.length ? `<div class="shrink-0 border-t border-black/[.06] px-3 py-2 text-[11px] leading-4 text-zinc-500 dark:border-white/10">${caveats.map(x => `<p dir="auto">${esc(x.h.text)}</p>`).join('')}</div>` : ''
   }
   hints.subscribe(paintHints)
   wideMq.addEventListener('change', () => { hintsOpen = wideMq.matches && localStorage.getItem('proto-hints') !== '0'; paintHints() })
@@ -1454,7 +1555,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     if (!b) return
     const [what, a, c] = b.dataset.hint!.split(':'), list = hintList(), h = list[Number(a)]
     try {
-      if (what === 'open' || what === 'close') { hintsOpen = what === 'open'; if (!hintsOpen) setTry(null); if (wideMq.matches) localStorage.setItem('proto-hints', hintsOpen ? '1' : '0') }
+      if (what === 'tab') tab = a as typeof tab
+      else if (what === 'open' || what === 'close') { if (what === 'open' && (a === 'comments' || a === 'try')) tab = a; hintsOpen = what === 'open'; if (!hintsOpen) setTry(null); if (wideMq.matches) localStorage.setItem('proto-hints', hintsOpen ? '1' : '0') }
       else if (what === 'copy' && h?.kind === 'value') { navigator.clipboard?.writeText(valueOf(h)); hintCopied = Number(a); flash() }
       else if (what === 'fill') {
         const host = hintHost()
@@ -1557,6 +1659,15 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       if (path !== 'stop') { st.status = await res.json(); render(); paintLifecycle() }
     } catch { /* see refreshStatus */ }
   }
+  /** Sends comments to the session's agent. Resolves to the batch's id; throws with the server's reason. */
+  async function sendBatch(batch: CommentBatch): Promise<string> {
+    const res = await fetch('/__proto/comments', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: st.dark ? 'dark' : 'light', ...batch }) })
+    const body = await res.json()
+    if (!res.ok) throw new Error(body.error || `the server answered ${res.status}`)
+    st.status = body
+    render()
+    return body.sent
+  }
   // While the page is open and visible it counts as activity, so the server isn't stopped
   // as idle under someone who is looking at it.
   const ping = () => { if (document.visibilityState === 'visible' && !st.stopped) post('ping') }
@@ -1622,6 +1733,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       render()
     },
     setLive(live: boolean) { st.live = live; render() },
+    setInbox(inbox: Inbox) { if (st.status) { st.status = { ...st.status, inbox }; render() } },
+    sendComments: sendBatch,
     edited(paths: string[]) {
       let retrying = false
       for (const path of paths) {

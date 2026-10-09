@@ -10,6 +10,8 @@
 //   proto pick <slug> <letter> [--off]   the user chose this variant: marked in the page
 //   proto work <slug>/<letter> [--ask "…"] [--off]   the variant being worked on: pinned in the page
 //   proto ask "…" [--to <slug>/<letter>]   a change the user asked for, kept with that variant
+//   proto inbox [--wait] [--timeout <min>]   comments sent from the page; --wait blocks until some arrive
+//   proto reply <batch>[/<n>] "…" [--done] [--as codex]   answer a comment (or a whole batch) in the page
 //   proto archive <slug> [--off]    proto keep [--off]      proto url    proto stack
 //   proto stop    proto rm    proto ls    proto gc
 //
@@ -33,8 +35,9 @@ const LOCAL_PORTS = [5180, 5279]
 const TAILNET_PORTS = [9500, 9599]
 const BASE = { vite: '^8.3.0', tailwindcss: '^4.3.0', '@tailwindcss/vite': '^4.3.0' }
 // The shell's own runtime, in every app whatever its stack: the phone's variant sheet is Base
-// UI's Drawer, which is React.
-const SHELL = { react: '^19.2.0', 'react-dom': '^19.2.0', '@base-ui/react': '^1.9.0' }
+// UI's Drawer, which is React, and so is the comment layer (which takes its screenshots with
+// modern-screenshot).
+const SHELL = { react: '^19.2.0', 'react-dom': '^19.2.0', '@base-ui/react': '^1.9.0', 'modern-screenshot': '^4.7.0' }
 const STACKS = {
   react: { deps: {}, dev: { '@vitejs/plugin-react': '^6.1.0' }, ext: 'tsx', adapter: 'react.tsx', hints: 'hints.react.ts', stub: 'react.tsx' },
   vue: { deps: { vue: '^3.5.0' }, dev: { '@vitejs/plugin-vue': '^6.0.0' }, ext: 'vue', adapter: 'vue.ts', hints: 'hints.vue.ts', stub: 'vue.vue' },
@@ -512,6 +515,105 @@ function rtlCheck(dir, routes) {
   }
 }
 
+// ---------- the inbox ----------
+// Comments sent from the page land in the app's .proto/inbox/new/<batch>/ (the server writes
+// them whole). Taking a batch moves it to taken/, so it is handed out once. `--wait` is meant to
+// run in the background: it exits when a batch arrives, which wakes the agent.
+const inboxDir = dir => join(dir, '.proto', 'inbox')
+const batchesIn = (dir, sub) => { try { return readdirSync(join(inboxDir(dir), sub)).filter(f => !f.startsWith('.')).sort() } catch { return [] } }
+const waiterFile = dir => join(inboxDir(dir), 'waiter.json')
+
+function take(dir) {
+  const taken = []
+  mkdirSync(join(inboxDir(dir), 'taken'), { recursive: true })
+  for (const id of batchesIn(dir, 'new')) {
+    try { renameSync(join(inboxDir(dir), 'new', id), join(inboxDir(dir), 'taken', id)) } catch { continue /* another reader took it */ }
+    const b = readJson(join(inboxDir(dir), 'taken', id, 'batch.json'), null)
+    if (b) taken.push(b)
+  }
+  return taken
+}
+
+const where = e => {
+  if (!e) return ''
+  const name = e.shoot ? `[data-shoot=${e.shoot}]` : e.selector || ''
+  const r = e.rect ? ` at ${e.rect.x},${e.rect.y} ${e.rect.w}x${e.rect.h}` : ''
+  return [`<${e.tag || '?'}>`, e.text && `"${e.text.replace(/\s+/g, ' ').slice(0, 80)}"`, name].filter(Boolean).join(' ') + r + (e.src ? `  ${e.src}` : '')
+}
+function printBatch(dir, b) {
+  const vp = b.viewport ? ` · page ${b.viewport.w}x${b.viewport.h}${b.viewport.phone ? ' (phone)' : ''}` : ''
+  console.log(`batch ${b.id} · ${b.comments.length} comment${b.comments.length === 1 ? '' : 's'}${vp} · ${b.theme}`)
+  for (const c of b.comments) {
+    console.log(`\n${c.n}. ${c.route}`)
+    console.log(`   ${c.text.split('\n').join('\n   ')}`)
+    if (c.target) console.log(`   on: ${where(c.target)}`)
+    else if (c.point) console.log(`   at: ${c.point.x},${c.point.y}`)
+    for (const t of c.tags || []) console.log(`   with: ${where(t)}`)
+    for (const img of c.images || []) console.log(`   image: ${join(inboxDir(dir), 'taken', b.id, img.file)}${img.name ? `  (${img.name})` : ''}`)
+  }
+  console.log(`\nReply: proto reply ${b.id}/<n> "…" --done   (or ${b.id} for the whole batch)\n`)
+}
+
+async function inbox() {
+  const dir = sessionDir()
+  const s = need(dir)
+  if (!flags.wait) {
+    const got = take(dir)
+    got.forEach(b => printBatch(dir, b))
+    if (!got.length) console.log('no new comments')
+    const w = readJson(waiterFile(dir), null)
+    console.log(w && alive(w.pid) ? `listening (pid ${w.pid})` : 'not listening: run `proto inbox --wait` in the background')
+    return
+  }
+  const w = readJson(waiterFile(dir), null)
+  if (w && alive(w.pid) && w.pid !== process.pid) return console.log(`already listening (pid ${w.pid}); nothing to do`)
+  const minutes = Number(flags.timeout) || 115
+  writeJson(waiterFile(dir), { pid: process.pid, at: new Date().toISOString(), until: new Date(Date.now() + minutes * 60e3).toISOString() })
+  const done = () => { const now = readJson(waiterFile(dir), null); if (now?.pid === process.pid) rmSync(waiterFile(dir), { force: true }) }
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => { done(); process.exit(0) })
+  console.log(`listening for comments on ${s.url || s.localUrl || 'the page'}`)
+  const end = Date.now() + minutes * 60e3
+  while (Date.now() < end) {
+    if (batchesIn(dir, 'new').length) {
+      // A reviewer often sends twice in a row: a moment's grace takes both in one wake.
+      await sleep(1500)
+      const got = take(dir)
+      if (got.length) { done(); got.forEach(b => printBatch(dir, b)); return }
+    }
+    if (!alive(readSession(dir)?.pid)) { done(); return console.log('the server stopped, so no comments can come. `proto up`, then listen again.') }
+    await sleep(1000)
+  }
+  done()
+  console.log(`no comments in ${minutes} min. Listen again: proto inbox --wait`)
+}
+
+function reply() {
+  const dir = sessionDir()
+  need(dir)
+  const [ref, ...words] = args
+  const text = words.join(' ').trim()
+  if (!ref || (!text && !flags.done)) die('proto reply <batch>[/<n>] "…" [--done]')
+  const [prefix, n] = ref.split('/')
+  const ids = batchesIn(dir, 'taken').filter(id => id.startsWith(prefix))
+  if (ids.length !== 1) die(ids.length ? `"${prefix}" matches ${ids.length} batches; give more of the id` : `no taken batch "${prefix}" (run proto inbox first)`)
+  const file = join(inboxDir(dir), 'taken', ids[0], 'batch.json')
+  const b = readJson(file, null)
+  const at = new Date().toISOString()
+  // Whose mark the page puts beside the reply.
+  const by = flags.as === 'codex' ? 'codex' : 'claude'
+  if (n) {
+    const c = b.comments.find(x => x.n === Number(n)) || die(`batch ${ids[0]} has no comment ${n} (1-${b.comments.length})`)
+    if (text) c.reply = { text, at, by }
+    if (flags.done) c.done = true
+  } else {
+    if (text) b.reply = { text, at, by }
+    if (flags.done) b.comments.forEach(c => { c.done = true })
+  }
+  b.done = b.comments.every(c => c.done)
+  writeJson(file, b)
+  console.log(`${ids[0]}${n ? `/${n}` : ''}: ${text ? 'replied' : ''}${text && flags.done ? ', ' : ''}${flags.done ? 'done' : ''}${b.done ? ' (batch done)' : ''}`)
+}
+
 async function snap() {
   const dir = sessionDir()
   const s = need(dir)
@@ -538,7 +640,7 @@ async function snap() {
 }
 
 const commands = {
-  up, add, pick, work, ask, archive, shoot, snap, gc: () => gc(false), ls,
+  up, add, pick, work, ask, archive, shoot, snap, inbox, reply, gc: () => gc(false), ls,
   stop: async () => { await stop(); console.log('stopped (files kept; proto up restarts it on the same link)') },
   rm: () => rm(),
   keep: () => { const dir = sessionDir(); need(dir); patchSession(dir, { keep: !flags.off }); console.log(flags.off ? 'no longer kept' : 'kept until deleted by hand') },
@@ -546,7 +648,7 @@ const commands = {
   stack: () => { const d = detectStack(projectRoot()); console.log(`${d.stack} (${d.why})`) },
 }
 if (!commands[cmd]) {
-  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split(/\r?\n/).slice(1, 17).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
+  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split(/\r?\n/).slice(1, 19).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
   process.exit(cmd ? 1 : 0)
 }
 await commands[cmd]()

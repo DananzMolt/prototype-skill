@@ -24,6 +24,8 @@ if (import.meta.hot) {
       shell.replaceVariant(u.path, mod.default)
     }
   })
+  // Comments taken, answered or marked done by the agent (the server watches .proto/inbox).
+  import.meta.hot.on('proto:inbox', inbox => shell.setInbox(inbox))
   import.meta.hot.on('vite:ws:disconnect', () => shell.setLive(false))
   import.meta.hot.on('vite:ws:connect', () => shell.setLive(true))
 }

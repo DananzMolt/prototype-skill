@@ -324,6 +324,38 @@ its sibling variants (with Hide others) and the variants worked on before.
 - `proto work` alone prints the current one; `proto work --off` clears it. Archiving its
   prototype clears it too.
 
+## Comments from the page
+
+The user can leave comments on the design in the page (the Comment button, or C): click an
+element, write, tag other elements with `@`, attach a screenshot and mark it up, then send
+every draft at once. The side panel's Comments tab lists them and shows what became of each.
+Name the things worth pointing at with `data-shoot="…"`: it is how a comment, and the `@` menu,
+call an element ("Pricing card"), and without it they fall back to its text or tag. Each
+send is a batch waiting for you in the app's inbox. You hear about it only while you listen, so
+**at the end of every turn in a prototype session, listen**: run, in the background, with the
+Bash tool's longest timeout (2 hours),
+
+```
+proto inbox --wait
+```
+
+It exits when a batch arrives (printing it), which wakes you; after 115 minutes with nothing
+it exits saying so, and you listen again. If one is already listening it says so and exits;
+leave it. `proto inbox` without `--wait` takes whatever is waiting now and tells you whether
+something is listening.
+
+Each comment prints its route (`<slug>/<letter>[/<state>]`), the user's words, the element
+it is on (tag, text, `data-shoot` or selector, its box in CSS px from the variant's top left)
+and any elements it tags, and the absolute path of each screenshot attached to it. Read every
+screenshot. Then, per comment:
+
+1. The same as a request typed in chat: `proto ask` (or `proto work … --ask`) in the user's
+   words, then edit the variant.
+2. `proto reply <batch>/<n> "<what you changed, one line>" --done` (Codex adds `--as codex`, which
+   puts its mark beside the reply instead of Claude's). The page shows it on the
+   comment. A comment you can't act on gets a reply without `--done` saying why.
+3. When the batch is handled, listen again.
+
 ## 7. Only if asked: build it
 
 When the request says to implement the winner (the picked variant), build it in the real codebase with the
@@ -362,6 +394,7 @@ Each module is roughly 4 to 30 KB and goes through your tool calls, so snap only
 | A change to another variant ("now D, same idea") | `proto work <slug>/<letter> --ask "…"`, then edit it |
 | To drop a direction or prototype | `proto archive <slug>` (still reachable under Archived) |
 | The prototypes in a doc to share | `proto snap`, then a Claude Doc (section above) |
+| Comments sent from the page (a `proto inbox --wait` exited) | handle each, `proto reply … --done`, listen again |
 | Prototypes for a different project | `proto up --project <dir>`: a separate app for that project |
 
 ## Lifecycle

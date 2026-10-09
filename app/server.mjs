@@ -1,7 +1,8 @@
 // The dev-server side of a prototype session: status for the shell, the Keep and Stop
 // buttons, and stopping by itself after hours with no edits and nobody looking.
 import { execFile } from 'node:child_process'
-import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, renameSync, statSync, watch } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -49,11 +50,80 @@ function work({ proto, variant, undo }) {
   write({ work: { ...t, at: new Date().toISOString() }, before: before.filter((x, i, all) => all.findIndex(y => same(x, y)) === i).slice(0, 3).map(x => ({ proto: x.proto, variant: x.variant })) })
 }
 
+// ---------- the inbox: comments from the page, for the agent running the session ----------
+// Each send is one batch folder under .proto/inbox/: batch.json, plus its screenshots as files.
+// A new batch waits in new/ until `proto inbox` takes it, which moves it to taken/ (a rename,
+// so two readers never both get it). Replies are written into the taken batch.
+const inbox = join(dir, '.proto', 'inbox')
+const MAX_BODY = 40 * 1024 * 1024
+const alive = pid => { if (!pid) return false; try { process.kill(pid, 0); return true } catch { return false } }
+const readJson = (f, fallback) => { try { return JSON.parse(readFileSync(f, 'utf8')) } catch { return fallback } }
+const list = sub => { try { return readdirSync(join(inbox, sub)).filter(f => !f.startsWith('.')) } catch { return [] } }
+
+/** Where the inbox stands, for the page: what waits, whether an agent is listening, the batches' states. */
+export function inboxStatus() {
+  const waiter = readJson(join(inbox, 'waiter.json'), null)
+  const batches = [...list('new').map(id => [id, 'new']), ...list('taken').map(id => [id, 'taken'])].map(([id, where]) => {
+    const b = readJson(join(inbox, where, id, 'batch.json'), null)
+    return b && {
+      id, at: b.at, state: b.done ? 'done' : where === 'new' ? 'sent' : 'seen', reply: b.reply ?? null,
+      comments: b.comments.map(c => ({ n: c.n, route: c.route, done: !!c.done, reply: c.reply ?? null })),
+    }
+  }).filter(Boolean).sort((a, b) => a.at < b.at ? 1 : -1)
+  return { new: list('new').length, listening: !!waiter && alive(waiter.pid), batches: batches.slice(0, 20) }
+}
+
+const box = r => r && typeof r === 'object' ? { x: Math.round(+r.x || 0), y: Math.round(+r.y || 0), w: Math.round(+r.w || 0), h: Math.round(+r.h || 0) } : undefined
+const clip = (s, n) => typeof s === 'string' ? s.slice(0, n) : undefined
+const element = t => t && typeof t === 'object' ? {
+  selector: clip(t.selector, 500), shoot: clip(t.shoot, 100), src: clip(t.src, 300),
+  tag: clip(t.tag, 40), text: clip(t.text, 300), rect: box(t.rect),
+} : undefined
+
+/** Writes one send from the page as a new batch. Images come as data URLs and are stored as files. */
+function receive(data) {
+  const comments = Array.isArray(data?.comments) ? data.comments : []
+  if (!comments.length) throw Object.assign(new Error('no comments'), { status: 400 })
+  const at = new Date().toISOString()
+  const id = `${at.replace(/[-:]/g, '').replace(/\..*/, '')}-${randomBytes(2).toString('hex')}`
+  const folder = join(inbox, '.incoming', id)
+  mkdirSync(folder, { recursive: true })
+  let n = 0
+  const batch = {
+    id, at,
+    viewport: data.viewport && { w: +data.viewport.w || 0, h: +data.viewport.h || 0, phone: !!data.viewport.phone },
+    theme: data.theme === 'dark' ? 'dark' : 'light',
+    comments: comments.map((c, i) => {
+      if (typeof c?.text !== 'string' || !c.text.trim()) throw Object.assign(new Error(`comment ${i + 1} has no text`), { status: 400 })
+      if (typeof c.route !== 'string' || !/^[a-z0-9][a-z0-9-]*(\/[A-Z]{1,2}(\/[\w-]+)?)?$/.test(c.route)) throw Object.assign(new Error(`comment ${i + 1}: route is <slug>[/<letter>[/<state>]]`), { status: 400 })
+      const images = (Array.isArray(c.images) ? c.images : []).map(img => {
+        const m = String(img?.dataUrl ?? img).match(/^data:image\/(png|jpeg|webp);base64,(.+)$/)
+        if (!m) return null
+        const file = `${++n}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`
+        writeFileSync(join(folder, file), Buffer.from(m[2], 'base64'))
+        return { file, name: clip(img?.name, 100) }
+      }).filter(Boolean)
+      return {
+        n: i + 1, route: c.route, text: c.text.trim().slice(0, 4000),
+        point: c.point && { x: Math.round(+c.point.x || 0), y: Math.round(+c.point.y || 0) },
+        target: element(c.target),
+        tags: (Array.isArray(c.tags) ? c.tags : []).map(element).filter(Boolean).slice(0, 20),
+        images,
+      }
+    }),
+  }
+  writeFileSync(join(folder, 'batch.json'), JSON.stringify(batch, null, 2) + '\n')
+  // Complete before anyone can see it: a waiter only ever finds a whole batch in new/.
+  mkdirSync(join(inbox, 'new'), { recursive: true })
+  renameSync(folder, join(inbox, 'new', id))
+  return batch
+}
+
 export function prototypeServer(session) {
   let activity = Date.now()
   const status = () => {
     const s = read()
-    return { lastEdit: lastEdit(), keep: !!s.keep, idleHours: s.idleHours ?? 6, deleteDays: s.deleteDays ?? 14 }
+    return { lastEdit: lastEdit(), keep: !!s.keep, idleHours: s.idleHours ?? 6, deleteDays: s.deleteDays ?? 14, inbox: inboxStatus() }
   }
   const stop = reason => {
     write({ stoppedAt: new Date().toISOString(), stopReason: reason, pid: null })
@@ -72,19 +142,37 @@ export function prototypeServer(session) {
         if (slash(path).startsWith(`${src}/protos/`)) server.ws.send({ type: 'custom', event: 'proto:edit', data: { path: slash(path).slice(slash(dir).length - 1) } })
       })
       server.middlewares.use('/__proto', (req, res) => {
-        let body = ''
-        req.on('data', c => { body += c })
+        const chunks = []
+        let size = 0
+        const fail = (code, error) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ error })) }
+        req.on('data', c => {
+          size += c.length
+          if (size <= MAX_BODY) chunks.push(c)
+        })
         req.on('end', () => {
+          if (size > MAX_BODY) return fail(413, `over ${MAX_BODY / 1048576} MB; send fewer or smaller screenshots`)
           const route = req.url.split('?')[0]
-          const data = body ? JSON.parse(body) : {}
+          let data = {}
+          try { if (size) data = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { return fail(400, 'not JSON') }
           if (route === '/ping') activity = Date.now()
           if (route === '/keep') write({ keep: !!data.keep })
           if (route === '/work' && data.proto && data.variant) work(data)
+          let sent
+          if (route === '/comments') {
+            activity = Date.now()
+            try { sent = receive(data).id } catch (e) { return fail(e.status || 500, e.message) }
+          }
           res.setHeader('content-type', 'application/json')
-          res.end(JSON.stringify(status()))
+          res.end(JSON.stringify(sent ? { ...status(), sent } : status()))
           if (route === '/stop') setTimeout(() => stop('stopped from the page'), 100)
         })
       })
+      // .proto/ is outside Vite's watcher, so the inbox is watched here: a batch taken, a
+      // reply written or a listener starting reaches every open page at once.
+      mkdirSync(inbox, { recursive: true })
+      let pending
+      const changed = () => { clearTimeout(pending); pending = setTimeout(() => server.ws.send({ type: 'custom', event: 'proto:inbox', data: inboxStatus() }), 100) }
+      try { watch(inbox, { recursive: true }, changed) } catch { /* no recursive watch here: the page's status ping still catches up */ }
       // A visible page pings every minute, so "idle" means no edits and nobody looking. Once
       // every prototype is picked or archived, nothing is left to decide: stop much sooner.
       const idle = (read().idleHours ?? 6) * 3600e3
