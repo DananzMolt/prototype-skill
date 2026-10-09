@@ -520,6 +520,18 @@ function rtlCheck(dir, routes) {
 // them whole). Taking a batch moves it to taken/, so it is handed out once. `--wait` is meant to
 // run in the background: it exits when a batch arrives, which wakes the agent.
 const inboxDir = dir => join(dir, '.proto', 'inbox')
+// Windows keeps a directory busy while a scanner or a watcher has a file in it, so a rename can
+// fail with EPERM or EBUSY for a moment. Try again for a couple of seconds, and copy as the last resort.
+const BUSY = new Set(['EPERM', 'EBUSY', 'EACCES'])
+function moveDir(from, to) {
+  for (let i = 0; ; i++) {
+    try { return renameSync(from, to) } catch (e) {
+      if (!BUSY.has(e.code)) throw e
+      if (i >= 40) { cpSync(from, to, { recursive: true }); rmSync(from, { recursive: true, force: true }); return }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+    }
+  }
+}
 const batchesIn = (dir, sub) => { try { return readdirSync(join(inboxDir(dir), sub)).filter(f => !f.startsWith('.')).sort() } catch { return [] } }
 const waiterFile = dir => join(inboxDir(dir), 'waiter.json')
 
@@ -527,7 +539,8 @@ function take(dir) {
   const taken = []
   mkdirSync(join(inboxDir(dir), 'taken'), { recursive: true })
   for (const id of batchesIn(dir, 'new')) {
-    try { renameSync(join(inboxDir(dir), 'new', id), join(inboxDir(dir), 'taken', id)) } catch { continue /* another reader took it */ }
+    const from = join(inboxDir(dir), 'new', id)
+    try { moveDir(from, join(inboxDir(dir), 'taken', id)) } catch { continue /* another reader took it, or it is not whole yet */ }
     const b = readJson(join(inboxDir(dir), 'taken', id, 'batch.json'), null)
     if (b) taken.push(b)
   }

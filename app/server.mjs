@@ -2,7 +2,7 @@
 // buttons, and stopping by itself after hours with no edits and nobody looking.
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, renameSync, statSync, watch } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, writeFileSync, readdirSync, renameSync, rmSync, statSync, watch } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -56,6 +56,18 @@ function work({ proto, variant, undo }) {
 // so two readers never both get it). Replies are written into the taken batch.
 const inbox = join(dir, '.proto', 'inbox')
 const MAX_BODY = 40 * 1024 * 1024
+// Windows keeps a directory busy while a scanner or a watcher has a file in it, so a rename can
+// fail with EPERM or EBUSY for a moment. Try again for a couple of seconds, and copy as the last resort.
+const BUSY = new Set(['EPERM', 'EBUSY', 'EACCES'])
+function moveDir(from, to) {
+  for (let i = 0; ; i++) {
+    try { return renameSync(from, to) } catch (e) {
+      if (!BUSY.has(e.code)) throw e
+      if (i >= 40) { cpSync(from, to, { recursive: true }); rmSync(from, { recursive: true, force: true }); return }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+    }
+  }
+}
 const alive = pid => { if (!pid) return false; try { process.kill(pid, 0); return true } catch { return false } }
 const readJson = (f, fallback) => { try { return JSON.parse(readFileSync(f, 'utf8')) } catch { return fallback } }
 const list = sub => { try { return readdirSync(join(inbox, sub)).filter(f => !f.startsWith('.')) } catch { return [] } }
@@ -115,7 +127,7 @@ function receive(data) {
   writeFileSync(join(folder, 'batch.json'), JSON.stringify(batch, null, 2) + '\n')
   // Complete before anyone can see it: a waiter only ever finds a whole batch in new/.
   mkdirSync(join(inbox, 'new'), { recursive: true })
-  renameSync(folder, join(inbox, 'new', id))
+  moveDir(folder, join(inbox, 'new', id))
   return batch
 }
 
@@ -172,7 +184,8 @@ export function prototypeServer(session) {
       mkdirSync(inbox, { recursive: true })
       let pending
       const changed = () => { clearTimeout(pending); pending = setTimeout(() => server.ws.send({ type: 'custom', event: 'proto:inbox', data: inboxStatus() }), 100) }
-      try { watch(inbox, { recursive: true }, changed) } catch { /* no recursive watch here: the page's status ping still catches up */ }
+      // A watched folder that is removed (the session deleted) raises an error event on Windows; it must not stop the server.
+      try { watch(inbox, { recursive: true }, changed).on('error', () => {}) } catch { /* no recursive watch here: the page's status ping still catches up */ }
       // A visible page pings every minute, so "idle" means no edits and nobody looking. Once
       // every prototype is picked or archived, nothing is left to decide: stop much sooner.
       const idle = (read().idleHours ?? 6) * 3600e3
