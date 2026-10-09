@@ -12,9 +12,11 @@ the start, and watches every prototype appear and fill in as you write the files
 updates through hot module replacement, never a reload. Everything the user asks for in the
 session lives in that one app: **session › prototype › variant**.
 
-The app already has its navigation (a sidebar tree, breadcrumbs that open lobbies, jump menus,
-variant tabs (on a phone, a pill at the bottom you drag along), edge arrows, a focus mode with a dock, light and dark, phone frames, "editing" dots,
-a "Working on" card for the variant being changed). You only write variant files.
+The app already has its navigation (a switcher in the bar that opens the session as columns,
+a sidebar with one line per level and the current level as two columns, a stepper through the
+variants (on a phone, a pill at the bottom you drag along, and the columns as a sheet you drill
+into), edge arrows, a focus mode with a dock, light and dark, phone frames, "editing" dots, a
+strip naming the variant your requests change). You only write variant files.
 
 `proto` below means `node "${CLAUDE_SKILL_DIR}/scripts/proto.mjs"` (through `node`, the path in
 double quotes, not a shell variable: the same command works in Bash, Git Bash and PowerShell). It
@@ -160,8 +162,8 @@ proto add <slug> --title "Hero sections" --ask "<the user's request, in their wo
 
 `--from` is for a prototype built from part of an existing variant ("take the hero from
 home B further", then "now just that hero's CTA"): `proto add hero --from home/B …`, then
-`proto add cta --from hero/C …`. The page nests it under that variant in the sidebar, its
-breadcrumbs show the chain it came from, and the parent's overview links to it. `--from home`
+`proto add cta --from hero/C …`. The page puts it in a column after that variant, the switcher's
+second line shows the chain it came from, and the parent's overview links to it. `--from home`
 (no letter) nests it under the prototype as a whole.
 
 This writes `src/protos/<slug>/meta.ts` and a "Building…" placeholder per variant, prints a
@@ -188,8 +190,8 @@ so the user sees them land:
 
 **Show what's behind the clicks.** Whenever a variant has states a reviewer would otherwise
 have to find (a menu, a drawer, a step, an empty state, anything one variant adds), list them in
-`meta.ts` next to `variants`. The sidebar then shows each variant's line and its states under
-it, and a ⋯ on the variant's row offers Autoplay, All states and Compare:
+`meta.ts` next to `variants`. The sidebar then lists the open variant's states under its
+columns, each with its line, beside Autoplay, All states and Compare:
 
 ```
 "about": {
@@ -307,17 +309,18 @@ If `proto up` or `proto shoot` failed, say so with the error instead of leaving 
 
 ## While the user works on one variant
 
-After a pick the user usually asks for changes to one variant, round after round. The page pins
-that variant in a "Working on" card at the top of the sidebar: one click (or W) brings the user
-back to it from anywhere, and on it the card lists what they asked for, what was built from it,
-its sibling variants (with Hide others) and the variants worked on before.
+After a pick the user usually asks for changes to one variant, round after round. A strip at
+the top of the sidebar names it ("Your requests change this design", then the prototype and
+variant), and its row in the columns wears a green pin. Away from it, the strip offers Go to it
+(or W). It folds out into the changes they asked for, in order, with ticks and times, and a pick
+shows there as "You picked X".
 
 - **Each change the user asks for on it:** run `proto ask "<what they asked, a few words>"`
   before you edit, one line per request, in their terms ("Plus card: make it the obvious
   choice"), not yours.
 - **When their request is about a different variant** ("now let's do D", "B's header, same
-  idea"): `proto work <slug>/<letter> --ask "<what they asked>"` first. The card moves there and
-  offers Undo; the old one goes under Before, with its history kept.
+  idea"): `proto work <slug>/<letter> --ask "<what they asked>"` first. The strip moves there and
+  offers Undo; the old one keeps its history.
 - **Only on purpose.** Don't move it for an edit in passing (a typo in A, a shared `parts.tsx`):
   those light the editing dot as always. A variant built with `proto add --from` becomes the
   working one only when the user starts asking for changes to it.
