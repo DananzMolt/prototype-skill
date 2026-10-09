@@ -50,7 +50,7 @@ export function useStore(store: Store): State {
 }
 
 /** What became of a sent comment, from the inbox the server keeps. */
-export type Said = { text: string; by: 'claude' | 'codex' }
+export type Said = { text: string; by: 'claude' | 'codex'; at?: string }
 export function progress(item: Item, inbox?: Inbox): { state: CState; reply: Said | null } {
   if (!item.sent) return { state: 'draft', reply: null }
   // Until the first status arrives there is nothing to say but that it was sent.
@@ -60,7 +60,7 @@ export function progress(item: Item, inbox?: Inbox): { state: CState; reply: Sai
   if (!b) return { state: 'done', reply: null }
   const c = b.comments.find(x => x.n === item.sent!.i)
   const said = c?.reply ?? b.reply
-  const reply = said ? { text: said.text, by: said.by ?? 'claude' } : null
+  const reply = said ? { text: said.text, by: said.by ?? 'claude', at: said.at } : null
   if (c?.done) return { state: 'done', reply }
   return { state: b.state === 'sent' ? 'sent' : 'seen', reply }
 }

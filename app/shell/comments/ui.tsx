@@ -78,3 +78,16 @@ export function Reply({ text, by = 'claude', small }: { text: string; by?: Agent
     </span>
   )
 }
+
+/** Something is being worked on: a soft pulsing dot in the primary color. */
+export const Working = ({ className = 'size-2' }: { className?: string }) => (
+  <span className={`relative inline-flex ${className}`}><span className="absolute inline-flex size-full animate-ping rounded-full bg-proto-primary-ring opacity-60" /><span className="relative inline-flex size-full rounded-full bg-proto-primary" /></span>
+)
+
+/** "now", "5 min", "3 h", "2 d": how long ago, short. */
+export function since(at?: string | number) {
+  const t = typeof at === 'number' ? at : at ? Date.parse(at) : NaN
+  if (!Number.isFinite(t)) return ''
+  const m = Math.max(0, Math.round((Date.now() - t) / 60000))
+  return m < 1 ? 'now' : m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`
+}
