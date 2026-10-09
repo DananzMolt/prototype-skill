@@ -14,6 +14,7 @@ import { hints, fillField, type Hint } from './hints'
 import { createSheet, createMenuSheet } from './sheet'
 import { createSpotlight, showable, showIcon, whereIs } from './spotlight'
 import { createComments } from './comments/index'
+import { tabIcon } from './favicon'
 
 export type Variant = { id: string; name: string; file: string; load: () => Promise<unknown> }
 /** Something behind clicks in a prototype's variants (a menu, a drawer, a dialog), reached by
@@ -1248,15 +1249,15 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   }
 
   // ---------- tab icon ----------
-  // The session's initial, like its badge, with the live dot (gray once the server is gone).
-  // It inverts for dark browser chrome.
+  // The skill's icon with the session's initial in a badge that is also the live light (gray once
+  // the server is gone).
   let iconKey = ''
   function paintIcon() {
     const initial = esc((session.name.trim()[0] || 'P').toUpperCase())
     const live = st.live && !st.stopped
     if (iconKey === initial + live) return
     iconKey = initial + live
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><style>.b{fill:#18181b}.t{fill:#fff}.r{stroke:#fff}@media (prefers-color-scheme:dark){.b{fill:#fff}.t{fill:#18181b}.r{stroke:#18181b}}</style><rect class="b" x="1" y="3" width="28" height="28" rx="8"/><text class="t" x="15" y="23.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif" font-size="17" font-weight="700" text-anchor="middle">${initial}</text><circle class="r" cx="25.5" cy="6.5" r="5" stroke-width="2" fill="${live ? '#10b981' : '#a1a1aa'}"/></svg>`
+    const svg = tabIcon(initial, live)
     let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
     if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.append(link) }
     link.type = 'image/svg+xml'
