@@ -57,3 +57,23 @@ export function Body({ c, className = '' }: { c: { body: Seg[]; tags: Target[] }
 export const plain = (c: { body: Seg[]; tags: Target[] }) => c.body.map(s => typeof s === 'string' ? s : `@${c.tags[s.tag]?.label ?? '?'}`).join('').replace(/ /g, ' ').trim()
 
 export type { Item }
+
+/** Claude's mark: a ring of uneven rays, in its terracotta. */
+export function ClaudeMark({ className = 'size-3.5' }: { className?: string }) {
+  const rays = [9, 6.5, 8.5, 6, 9, 6.5, 8, 6, 9, 6.5, 8.5, 6]
+  return (
+    <svg className={`${className} shrink-0`} viewBox="-12 -12 24 24" fill="none" stroke="#d97757" strokeWidth={2.4} strokeLinecap="round" aria-hidden="true">
+      {rays.map((r, i) => <path key={i} d={`M0 -${Math.min(r, 9) * 0.35 + 1.5}V-${r + 1.5}`} transform={`rotate(${i * 30})`} />)}
+    </svg>
+  )
+}
+
+/** What Claude said back, as a chat message from it: its mark, then the words in a bubble. */
+export function Reply({ text, small }: { text: string; small?: boolean }) {
+  return (
+    <span className={`flex items-start ${small ? 'gap-1.5' : 'gap-2'}`}>
+      <span className={`mt-px grid shrink-0 place-items-center rounded-full bg-[#d97757]/15 ${small ? 'size-4' : 'size-6'}`}><ClaudeMark className={small ? 'size-2.5' : 'size-3.5'} /></span>
+      <span dir="auto" className={`min-w-0 rounded-2xl rounded-ss-sm bg-zinc-900/[.05] text-zinc-800 dark:bg-white/[.08] dark:text-zinc-100 ${small ? 'px-2 py-1 text-[11px] leading-4' : 'px-3 py-1.5 text-[12.5px] leading-[18px]'}`}>{text}</span>
+    </span>
+  )
+}

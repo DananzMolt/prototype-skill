@@ -3,6 +3,7 @@
 // Send posts every draft as one batch. Whatever is being written when the composer is put away
 // any way but Cancel or Add is held, and comes back with the next comment.
 import type { CommentBatch } from '../shell'
+import { find } from './dom'
 import { plain } from './ui'
 import type { Ctx, Host } from './ctx'
 import type { Store } from './store'
@@ -45,6 +46,7 @@ export function createActions(store: Store, host: Host) {
       if (!i) return
       if (!here(i)) { host.go(i.proto, i.variant, i.state); set({ active: id }); return }
       set({ active: id, mode: i.sent ? { kind: 'idle' } : { kind: 'compose', target: i.target, id } })
+      find(host.mount(), i.target)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     },
     resume() { const h = get().held; if (h) set({ active: null, mode: { kind: 'compose', target: h.target } }) },
     discardHeld() { set({ held: null }) },

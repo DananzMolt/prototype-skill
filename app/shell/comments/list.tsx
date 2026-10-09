@@ -3,7 +3,7 @@
 import { useCtx } from './ctx'
 import { progress, useStore } from './store'
 import type { CState, Item } from './types'
-import { Body, Icon, Listening, PinDot, PRIMARY, STATE } from './ui'
+import { Body, Icon, Listening, PinDot, PRIMARY, Reply, STATE } from './ui'
 
 const ORDER: Record<CState, number> = { draft: 0, seen: 1, sent: 1, done: 2 }
 
@@ -27,7 +27,7 @@ export function CommentRow({ item, state, reply, here, active, compact, onOpen }
       </span>
       <Body c={item} className={`mt-1 block text-[12.5px] leading-[18px] ${state === 'done' ? 'text-zinc-500' : ''} ${compact ? 'line-clamp-2' : ''}`} />
       {(item.tags.length > 0 || item.shot) && !compact && <span className="mt-1.5 flex items-center gap-2">{item.shot && <img src={item.shot} alt="" className="h-8 w-12 rounded object-cover ring-1 ring-black/10" />}<span className="text-[11px] text-zinc-400">{[item.tags.length && `${item.tags.length} tagged`, item.shot && 'screenshot'].filter(Boolean).join(' · ')}</span></span>}
-      {reply && <span className="mt-2 flex gap-1.5 rounded-lg bg-emerald-500/[.08] px-2 py-1.5 text-[12px] leading-[17px] text-emerald-900 dark:text-emerald-200"><span className="font-semibold">Claude</span><span dir="auto" className="min-w-0">{reply}</span></span>}
+      {reply && <span className="mt-2 block"><Reply text={reply} /></span>}
     </button>
   )
 }

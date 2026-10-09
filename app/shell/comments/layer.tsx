@@ -1,14 +1,14 @@
 // Over the design: the outline on what the pointer is on, a numbered pin on each commented
 // element, the composer beside the one being written, and a sent comment's card.
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useCtx } from './ctx'
 import { describe } from './dom'
 import { HoverBox, useBoxes, usePick } from './inspect'
 import { Composer } from './composer'
-import { CommentRow, useRows } from './list'
+import { useRows } from './list'
 import { progress } from './store'
 import type { Box, Item } from './types'
-import { PinDot } from './ui'
+import { PinDot, Reply, STATE, Body } from './ui'
 
 function Pins({ items, boxes, active, onOpen }: { items: { item: Item; done: boolean }[]; boxes: Record<string, Box>; active: string | null; onOpen: (id: string) => void }) {
   return <>{items.map(({ item: c, done }) => {
@@ -17,10 +17,10 @@ function Pins({ items, boxes, active, onOpen }: { items: { item: Item; done: boo
     const on = active === c.id
     return (
       <div key={c.id}>
-        {on && <div className="pointer-events-none absolute z-10 rounded-md ring-2 ring-proto-primary-ring" style={{ left: b.x - 3, top: b.y - 3, width: b.w + 6, height: b.h + 6 }} />}
-        <button onClick={() => onOpen(c.id)} aria-label={`Comment ${c.n}`} className={`pointer-events-auto absolute z-20 rounded-full shadow-md ring-2 ring-white transition hover:scale-110 dark:ring-zinc-950 ${done && !on ? 'opacity-50' : ''}`} style={{ left: b.x + b.w - 10, top: b.y - 10 }}>
-          <PinDot n={c.n} done={done} />
-        </button>
+        {on && <div className={`pointer-events-none absolute z-10 rounded-md ring-2 ${done ? 'ring-emerald-500' : 'ring-proto-primary-ring'}`} style={{ left: b.x - 3, top: b.y - 3, width: b.w + 6, height: b.h + 6 }} />}
+        {!done && <button onClick={() => onOpen(c.id)} aria-label={`Comment ${c.n}`} className="pointer-events-auto absolute z-20 rounded-full shadow-md ring-2 ring-white transition hover:scale-110 dark:ring-zinc-950" style={{ left: b.x + b.w - 10, top: b.y - 10 }}>
+          <PinDot n={c.n} />
+        </button>}
       </div>
     )
   })}</>
@@ -76,21 +76,35 @@ export function Layer() {
   )
 }
 
-/** A sent or answered comment, opened from its pin: what was asked and what Claude did. */
+/** A sent or answered comment, opened from the list: what was asked and what Claude did, small, under its element. */
 function ReadCard({ row, box }: { row: { item: Item; state: ReturnType<typeof progress>['state']; reply: string | null; here: boolean }; box?: Box }) {
   const { host, act } = useCtx()
+  const el = useRef<HTMLDivElement>(null)
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null)
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); act.close() } }
     document.addEventListener('keydown', k, true)
     return () => document.removeEventListener('keydown', k, true)
   }, [act])
-  const lay = host.layer.getBoundingClientRect()
+  // Under the element and its outline; above it only when there is no room below.
+  useLayoutEffect(() => {
+    if (!box || !el.current) return
+    const H = host.layer.clientHeight, W = host.layer.clientWidth, w = el.current.offsetWidth, h = el.current.offsetHeight
+    const below = box.y + box.h + 10
+    const top = below + h <= H - 8 ? below : box.y - 10 - h >= 8 ? box.y - 10 - h : Math.max(8, Math.min(below, H - h - 8))
+    setAt({ left: Math.min(Math.max(box.x, 8), Math.max(8, W - w - 8)), top })
+  }, [box?.x, box?.y, box?.w, box?.h, row.reply, host])
   if (!box) return null
-  const W = 300, right = box.x + box.w + 12 + W < lay.width - 8
-  const x = right ? box.x + box.w + 12 : Math.max(8, box.x - 12 - W)
+  const { item, state, reply } = row
   return (
-    <div className="pointer-events-auto absolute z-30 rounded-2xl border border-black/10 bg-white p-1.5 text-[13px] shadow-2xl shadow-black/15 dark:border-white/10 dark:bg-zinc-900" style={{ left: x, top: Math.min(Math.max(8, box.y - 8), lay.height - 220), width: W }}>
-      <CommentRow {...row} onOpen={act.close} />
+    <div ref={el} className="pointer-events-auto absolute z-30 w-[min(15rem,calc(100%-1rem))] rounded-xl border border-black/10 bg-white p-2 text-[11px] leading-4 shadow-xl shadow-black/15 dark:border-white/10 dark:bg-zinc-900" style={{ left: at?.left ?? box.x, top: at?.top ?? box.y + box.h + 10, visibility: at ? 'visible' : 'hidden' }}>
+      <div className="flex items-center gap-1.5 text-[10px]">
+        <PinDot n={item.n} done={state === 'done'} size="sm" />
+        <span dir="auto" className="min-w-0 flex-1 truncate font-medium text-zinc-500">{item.target.label}</span>
+        <span className={`shrink-0 ${STATE[state].cls}`}>{STATE[state].label}</span>
+      </div>
+      <Body c={item} className="mt-1 block text-zinc-800 dark:text-zinc-200" />
+      {reply && <span className="mt-1.5 block"><Reply text={reply} small /></span>}
     </div>
   )
 }
