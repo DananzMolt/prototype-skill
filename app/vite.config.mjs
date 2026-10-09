@@ -16,7 +16,7 @@ export default defineConfig({
   resolve: { alias: { '@project': session.project } },
   // The shell's sheet runs on React in every stack; bundled up front, a Vue app doesn't reload
   // the first time it opens.
-  optimizeDeps: { include: ['react', 'react-dom', 'react-dom/client', '@base-ui/react/drawer'] },
+  optimizeDeps: { include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime', '@base-ui/react/drawer', 'modern-screenshot'] },
   server: {
     host: '127.0.0.1',
     port: session.port,

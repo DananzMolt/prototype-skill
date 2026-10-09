@@ -106,6 +106,10 @@ Menus, drawers and steps inside a variant are listed under it in the sidebar, ea
 
 A variant can say what a reviewer needs to get through it, and the page shows it in a panel at the stage's right edge: values to type (a demo login, a 2FA code that changes every 30 seconds), each copied with a click or typed in with Fill in, things to try that tick themselves off and, when you point at one, light up where on the design it happens (the rest dims, a label says Click, Grab and Drop or Press ⌘ K, and an arrow draws a drag), scenario switches (empty, busy, an error), events from outside (a message arrives, a payment fails) and what the prototype doesn't do. The design narrows beside it instead of being covered; on a phone it opens over the design, and closed it is a tab on the edge. Screenshots leave it out.
 
+### Comment on the design
+
+Press `C` (or the Comment button, or ⌥-click one thing) and the design stops responding to clicks and starts being looked at: an outline follows the pointer, and a click opens a comment beside the element. Write what should change, tag other parts of the design with `@` (a menu of its named parts, each lit on the design as you point at it, or pick anything on the page), attach a screenshot of that part and draw on it. Comments become numbered pins, and a half-written one is kept until you cancel or add it. Send puts every draft in front of the Claude session that runs the prototype, with the element, its place on the design and the screenshots; as Claude answers, each comment turns to Done with its reply. On a phone, the first tap inspects and a second tap comments.
+
 ### Focus mode
 
 Press `F` and the chrome disappears (`Esc` brings it back, and on a variant page goes up to all its variants). A small dock stays at the bottom and grows as your pointer gets close; edge arrows appear near the sides.

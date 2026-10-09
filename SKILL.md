@@ -326,7 +326,11 @@ its sibling variants (with Hide others) and the variants worked on before.
 
 ## Comments from the page
 
-The user can leave comments on the design in the page and send them, several at once. Each
+The user can leave comments on the design in the page (the Comment button, or C): click an
+element, write, tag other elements with `@`, attach a screenshot and mark it up, then send
+every draft at once. The side panel's Comments tab lists them and shows what became of each.
+Name the things worth pointing at with `data-shoot="…"`: it is how a comment, and the `@` menu,
+call an element ("Pricing card"), and without it they fall back to its text or tag. Each
 send is a batch waiting for you in the app's inbox. You hear about it only while you listen, so
 **at the end of every turn in a prototype session, listen**: run, in the background, with the
 Bash tool's longest timeout (2 hours),

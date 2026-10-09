@@ -35,8 +35,9 @@ const LOCAL_PORTS = [5180, 5279]
 const TAILNET_PORTS = [9500, 9599]
 const BASE = { vite: '^8.3.0', tailwindcss: '^4.3.0', '@tailwindcss/vite': '^4.3.0' }
 // The shell's own runtime, in every app whatever its stack: the phone's variant sheet is Base
-// UI's Drawer, which is React.
-const SHELL = { react: '^19.2.0', 'react-dom': '^19.2.0', '@base-ui/react': '^1.9.0' }
+// UI's Drawer, which is React, and so is the comment layer (which takes its screenshots with
+// modern-screenshot).
+const SHELL = { react: '^19.2.0', 'react-dom': '^19.2.0', '@base-ui/react': '^1.9.0', 'modern-screenshot': '^4.7.0' }
 const STACKS = {
   react: { deps: {}, dev: { '@vitejs/plugin-react': '^6.1.0' }, ext: 'tsx', adapter: 'react.tsx', hints: 'hints.react.ts', stub: 'react.tsx' },
   vue: { deps: { vue: '^3.5.0' }, dev: { '@vitejs/plugin-vue': '^6.0.0' }, ext: 'vue', adapter: 'vue.ts', hints: 'hints.vue.ts', stub: 'vue.vue' },

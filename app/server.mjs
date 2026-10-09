@@ -157,12 +157,13 @@ export function prototypeServer(session) {
           if (route === '/ping') activity = Date.now()
           if (route === '/keep') write({ keep: !!data.keep })
           if (route === '/work' && data.proto && data.variant) work(data)
+          let sent
           if (route === '/comments') {
             activity = Date.now()
-            try { receive(data) } catch (e) { return fail(e.status || 500, e.message) }
+            try { sent = receive(data).id } catch (e) { return fail(e.status || 500, e.message) }
           }
           res.setHeader('content-type', 'application/json')
-          res.end(JSON.stringify(status()))
+          res.end(JSON.stringify(sent ? { ...status(), sent } : status()))
           if (route === '/stop') setTimeout(() => stop('stopped from the page'), 100)
         })
       })
