@@ -1,7 +1,7 @@
 // The comments as a list: the rail's body and the phone sheet's. Each row is where a comment is,
 // what it says, and what came of it; the unfinished comment sits above them.
 import { useCtx } from './ctx'
-import { progress, useStore } from './store'
+import { progress, useStore, type Said } from './store'
 import type { CState, Item } from './types'
 import { Body, Icon, Listening, PinDot, PRIMARY, Reply, STATE } from './ui'
 
@@ -16,7 +16,7 @@ export function useRows() {
 }
 
 /** A comment as a row: where it is, what it says, what came of it. */
-export function CommentRow({ item, state, reply, here, active, compact, onOpen }: { item: Item; state: CState; reply: string | null; here: boolean; active?: boolean; compact?: boolean; onOpen: () => void }) {
+export function CommentRow({ item, state, reply, here, active, compact, onOpen }: { item: Item; state: CState; reply: Said | null; here: boolean; active?: boolean; compact?: boolean; onOpen: () => void }) {
   return (
     <button onClick={onOpen} data-shoot="comment-row" className={`block w-full rounded-xl border p-2.5 text-start transition ${active ? 'border-proto-primary-ring bg-proto-primary-soft' : state === 'done' ? 'border-transparent bg-zinc-900/[.03] hover:bg-zinc-900/[.05] dark:bg-white/[.04] dark:hover:bg-white/[.07]' : 'border-black/[.08] hover:border-black/20 dark:border-white/10 dark:hover:border-white/25'}`}>
       <span className="flex items-center gap-2 text-[11px]">
@@ -27,7 +27,7 @@ export function CommentRow({ item, state, reply, here, active, compact, onOpen }
       </span>
       <Body c={item} className={`mt-1 block text-[12.5px] leading-[18px] ${state === 'done' ? 'text-zinc-500' : ''} ${compact ? 'line-clamp-2' : ''}`} />
       {(item.tags.length > 0 || item.shot) && !compact && <span className="mt-1.5 flex items-center gap-2">{item.shot && <img src={item.shot} alt="" className="h-8 w-12 rounded object-cover ring-1 ring-black/10" />}<span className="text-[11px] text-zinc-400">{[item.tags.length && `${item.tags.length} tagged`, item.shot && 'screenshot'].filter(Boolean).join(' · ')}</span></span>}
-      {reply && <span className="mt-2 block"><Reply text={reply} /></span>}
+      {reply && <span className="mt-2 block"><Reply text={reply.text} by={reply.by} /></span>}
     </button>
   )
 }

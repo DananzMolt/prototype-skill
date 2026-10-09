@@ -35,8 +35,8 @@ type Layer = { el: HTMLElement; refs: unknown[]; ready: Promise<unknown>; dispos
 export type Inbox = {
   new: number
   listening: boolean
-  batches: { id: string; at: string; state: 'sent' | 'seen' | 'done'; reply: { text: string; at: string } | null
-    comments: { n: number; route: string; done: boolean; reply: { text: string; at: string } | null }[] }[]
+  batches: { id: string; at: string; state: 'sent' | 'seen' | 'done'; reply: { text: string; at: string; by?: 'claude' | 'codex' } | null
+    comments: { n: number; route: string; done: boolean; reply: { text: string; at: string; by?: 'claude' | 'codex' } | null }[] }[]
 }
 /** An element a comment is on or tags. Rect is in CSS px from the variant root's top left. */
 export type Pinned = { selector?: string; shoot?: string; src?: string; tag?: string; text?: string; rect?: { x: number; y: number; w: number; h: number } }

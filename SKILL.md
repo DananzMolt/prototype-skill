@@ -351,7 +351,8 @@ screenshot. Then, per comment:
 
 1. The same as a request typed in chat: `proto ask` (or `proto work … --ask`) in the user's
    words, then edit the variant.
-2. `proto reply <batch>/<n> "<what you changed, one line>" --done`. The page shows it on the
+2. `proto reply <batch>/<n> "<what you changed, one line>" --done` (Codex adds `--as codex`, which
+   puts its mark beside the reply instead of Claude's). The page shows it on the
    comment. A comment you can't act on gets a reply without `--done` saying why.
 3. When the batch is handled, listen again.
 

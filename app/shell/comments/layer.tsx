@@ -6,7 +6,7 @@ import { describe } from './dom'
 import { HoverBox, useBoxes, usePick } from './inspect'
 import { Composer } from './composer'
 import { useRows } from './list'
-import { progress } from './store'
+import { progress, type Said } from './store'
 import type { Box, Item } from './types'
 import { PinDot, Reply, STATE, Body } from './ui'
 
@@ -77,7 +77,7 @@ export function Layer() {
 }
 
 /** A sent or answered comment, opened from the list: what was asked and what Claude did, small, under its element. */
-function ReadCard({ row, box }: { row: { item: Item; state: ReturnType<typeof progress>['state']; reply: string | null; here: boolean }; box?: Box }) {
+function ReadCard({ row, box }: { row: { item: Item; state: ReturnType<typeof progress>['state']; reply: Said | null; here: boolean }; box?: Box }) {
   const { host, act } = useCtx()
   const el = useRef<HTMLDivElement>(null)
   const [at, setAt] = useState<{ left: number; top: number } | null>(null)
@@ -102,7 +102,7 @@ function ReadCard({ row, box }: { row: { item: Item; state: ReturnType<typeof pr
     const below = box.y + box.h + 10
     const top = below + h <= H - 8 ? below : box.y - 10 - h >= 8 ? box.y - 10 - h : Math.max(8, Math.min(below, H - h - 8))
     setAt({ left: Math.min(Math.max(box.x, 8), Math.max(8, W - w - 8)), top })
-  }, [box?.x, box?.y, box?.w, box?.h, row.reply, host])
+  }, [box?.x, box?.y, box?.w, box?.h, row.reply?.text, host])
   if (!box) return null
   const { item, state, reply } = row
   return (
@@ -113,7 +113,7 @@ function ReadCard({ row, box }: { row: { item: Item; state: ReturnType<typeof pr
         <span className={`shrink-0 ${STATE[state].cls}`}>{STATE[state].label}</span>
       </div>
       <Body c={item} className="mt-1 block text-zinc-800 dark:text-zinc-200" />
-      {reply && <span className="mt-1.5 block"><Reply text={reply} small /></span>}
+      {reply && <span className="mt-1.5 block"><Reply text={reply.text} by={reply.by} small /></span>}
     </div>
   )
 }

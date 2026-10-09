@@ -50,7 +50,8 @@ export function useStore(store: Store): State {
 }
 
 /** What became of a sent comment, from the inbox the server keeps. */
-export function progress(item: Item, inbox?: Inbox): { state: CState; reply: string | null } {
+export type Said = { text: string; by: 'claude' | 'codex' }
+export function progress(item: Item, inbox?: Inbox): { state: CState; reply: Said | null } {
   if (!item.sent) return { state: 'draft', reply: null }
   // Until the first status arrives there is nothing to say but that it was sent.
   if (!inbox) return { state: 'sent', reply: null }
@@ -58,7 +59,8 @@ export function progress(item: Item, inbox?: Inbox): { state: CState; reply: str
   // A batch the server no longer lists is an old one, long since answered.
   if (!b) return { state: 'done', reply: null }
   const c = b.comments.find(x => x.n === item.sent!.i)
-  const reply = c?.reply?.text ?? b.reply?.text ?? null
+  const said = c?.reply ?? b.reply
+  const reply = said ? { text: said.text, by: said.by ?? 'claude' } : null
   if (c?.done) return { state: 'done', reply }
   return { state: b.state === 'sent' ? 'sent' : 'seen', reply }
 }

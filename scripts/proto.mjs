@@ -11,7 +11,7 @@
 //   proto work <slug>/<letter> [--ask "…"] [--off]   the variant being worked on: pinned in the page
 //   proto ask "…" [--to <slug>/<letter>]   a change the user asked for, kept with that variant
 //   proto inbox [--wait] [--timeout <min>]   comments sent from the page; --wait blocks until some arrive
-//   proto reply <batch>[/<n>] "…" [--done]   answer a comment (or a whole batch) in the page
+//   proto reply <batch>[/<n>] "…" [--done] [--as codex]   answer a comment (or a whole batch) in the page
 //   proto archive <slug> [--off]    proto keep [--off]      proto url    proto stack
 //   proto stop    proto rm    proto ls    proto gc
 //
@@ -599,12 +599,14 @@ function reply() {
   const file = join(inboxDir(dir), 'taken', ids[0], 'batch.json')
   const b = readJson(file, null)
   const at = new Date().toISOString()
+  // Whose mark the page puts beside the reply.
+  const by = flags.as === 'codex' ? 'codex' : 'claude'
   if (n) {
     const c = b.comments.find(x => x.n === Number(n)) || die(`batch ${ids[0]} has no comment ${n} (1-${b.comments.length})`)
-    if (text) c.reply = { text, at }
+    if (text) c.reply = { text, at, by }
     if (flags.done) c.done = true
   } else {
-    if (text) b.reply = { text, at }
+    if (text) b.reply = { text, at, by }
     if (flags.done) b.comments.forEach(c => { c.done = true })
   }
   b.done = b.comments.every(c => c.done)
