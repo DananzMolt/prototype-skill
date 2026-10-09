@@ -30,7 +30,22 @@ type Mount = (el: HTMLElement, component: any) => () => void
 type Tool = 'play' | 'all' | 'compare'
 type Place = { view: 'session' } | { view: 'proto'; proto: string } | { view: 'variant'; proto: string; variant: string; state?: string; tool?: Tool }
 type Layer = { el: HTMLElement; refs: unknown[]; ready: Promise<unknown>; dispose: () => void; player?: { toggle: () => void; jump: (i: number) => void } }
-type Status = { lastEdit: number; keep: boolean; idleHours: number; deleteDays: number }
+// Comments sent from the page to the agent running the session (`proto inbox`), and what came back.
+export type Inbox = {
+  new: number
+  listening: boolean
+  batches: { id: string; at: string; state: 'sent' | 'seen' | 'done'; reply: { text: string; at: string } | null
+    comments: { n: number; route: string; done: boolean; reply: { text: string; at: string } | null }[] }[]
+}
+/** An element a comment is on or tags. Rect is in CSS px from the variant root's top left. */
+export type Pinned = { selector?: string; shoot?: string; src?: string; tag?: string; text?: string; rect?: { x: number; y: number; w: number; h: number } }
+/** One send: route is <slug>/<letter>[/<state>]; images are data URLs (png, jpeg, webp). */
+export type CommentBatch = {
+  comments: { route: string; text: string; point?: { x: number; y: number }; target?: Pinned; tags?: Pinned[]; images?: { dataUrl: string; name?: string }[] }[]
+  viewport?: { w: number; h: number; phone?: boolean }
+  theme?: 'light' | 'dark'
+}
+type Status = { lastEdit: number; keep: boolean; idleHours: number; deleteDays: number; inbox?: Inbox }
 
 const PHONE = 'shrink-0 overflow-hidden rounded-[55px] border-[10px] border-zinc-900 bg-white text-zinc-900 shadow-xl dark:border-zinc-700 dark:bg-black dark:text-white'
 // The phone scale: Fit (0) or a percentage. The menu offers these in a row and a slider for
@@ -1622,6 +1637,16 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       render()
     },
     setLive(live: boolean) { st.live = live; render() },
+    setInbox(inbox: Inbox) { if (st.status) { st.status = { ...st.status, inbox }; render() } },
+    /** Sends comments to the session's agent. Resolves to the inbox after it; throws with the server's reason. */
+    async sendComments(batch: CommentBatch): Promise<Inbox | undefined> {
+      const res = await fetch('/__proto/comments', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: st.dark ? 'dark' : 'light', ...batch }) })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error || `the server answered ${res.status}`)
+      st.status = body
+      render()
+      return body.inbox
+    },
     edited(paths: string[]) {
       let retrying = false
       for (const path of paths) {
