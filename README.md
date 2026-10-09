@@ -108,7 +108,7 @@ A variant can say what a reviewer needs to get through it, and the page shows it
 
 ### Comment on the design
 
-Press `C` (or the Comment button, or ⌥-click one thing) and the design stops responding to clicks and starts being looked at: an outline follows the pointer, a click opens a comment beside the element, and an arrow button (or the Up key) skips to its parent. Write what should change, tag other parts of the design with `@` (a menu of its named parts, each lit on the design as you point at it, or pick anything on the page), attach a screenshot of that part and draw on it. A half-written comment is kept until you cancel or add it.
+Press `C` (or the Comment button, or ⌥-click one thing) and the design stops responding to clicks and starts being looked at, with the Comments panel open beside it on a wide window: an outline follows the pointer, a click opens a comment beside the element, and an arrow button (or the Up key) skips to its parent. Write what should change, tag other parts of the design with `@` (a menu of its named parts, each lit on the design as you point at it, or pick anything on the page), attach a screenshot of that part and draw on it. A half-written comment is kept until you cancel or add it.
 
 Name things in a design with `data-shoot="..."` and comments and the `@` menu call them by that name.
 
