@@ -108,7 +108,11 @@ A variant can say what a reviewer needs to get through it, and the page shows it
 
 ### Comment on the design
 
-Press `C` (or the Comment button, or ⌥-click one thing) and the design stops responding to clicks and starts being looked at: an outline follows the pointer, and a click opens a comment beside the element. Write what should change, tag other parts of the design with `@` (a menu of its named parts, each lit on the design as you point at it, or pick anything on the page), attach a screenshot of that part and draw on it. Comments become numbered pins, and a half-written one is kept until you cancel or add it. Send puts every draft in front of the Claude session that runs the prototype, with the element, its place on the design and the screenshots; as Claude answers, each comment turns to Done with its reply. On a phone, the first tap inspects and a second tap comments.
+Press `C` (or the Comment button, or ⌥-click one thing) and the design stops responding to clicks and starts being looked at: an outline follows the pointer, a click opens a comment beside the element, and an arrow button (or the Up key) skips to its parent. Write what should change, tag other parts of the design with `@` (a menu of its named parts, each lit on the design as you point at it, or pick anything on the page), attach a screenshot of that part and draw on it. A half-written comment is kept until you cancel or add it.
+
+Name things in a design with `data-shoot="..."` and comments and the `@` menu call them by that name.
+
+The list sits in the side panel (a bottom sheet on a phone), in three sections: **Ready to send**, **With Claude** and **Done**. Send puts every draft in front of the Claude (or Codex) session that runs the prototype, with the element, its place on the design and the screenshots. As the agent answers, each comment moves to Done with its reply, which opens as a chat message with the agent's mark and has a Show on design link that outlines the element and opens a small card under it. On a phone, the first tap inspects and a second tap comments.
 
 ### Focus mode
 
@@ -142,6 +146,7 @@ The link works on any device on your tailnet, and phone prototypes sit in a real
 4. Writes each variant into the app, and lists what's behind its clicks; you watch them land.
 5. Screenshots every variant on desktop and phone (a phone prototype: phone only), fixes what breaks, two rounds.
 6. Recommends one, says why, and what to take from the others.
+7. Listens for comments sent from the page (`proto inbox --wait`), makes each change and answers it with `proto reply`.
 
 ## Where things go
 
