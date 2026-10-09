@@ -198,8 +198,8 @@ export function Composer({ target, n, initial, place, sheet, tagging, editing, i
               if (m) { if (!menu) openMenu(); setQ(m[1]); setRow(m[1] ? 1 : 0); setPeeking(!!m[1]) } else if (menu) setMenu(false)
             }}
             onKeyUp={saveRange} onMouseUp={saveRange} onBlur={saveRange}
-            className="max-h-40 min-h-[52px] overflow-y-auto whitespace-pre-wrap break-words py-1 leading-5 outline-none" />
-          {empty && <span className="pointer-events-none absolute left-3 top-2.5 text-zinc-400">What should change? @ tags another element</span>}
+            className="max-h-40 min-h-[52px] overflow-y-auto whitespace-pre-wrap break-words py-1 leading-5 outline-none [@media(pointer:coarse)]:min-h-[60px] [@media(pointer:coarse)]:text-base [@media(pointer:coarse)]:leading-6" />
+          {empty && <span className="pointer-events-none absolute left-3 top-2.5 text-zinc-400 [@media(pointer:coarse)]:text-base [@media(pointer:coarse)]:leading-6">What should change? @ tags another element</span>}
           {menu && (
             <div ref={menuBox} className={`absolute inset-x-2 z-10 flex max-h-[min(22rem,60vh)] flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl dark:border-white/10 dark:bg-zinc-900 ${up ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
               {hl && <div className="pointer-events-none absolute inset-x-1 rounded-lg bg-proto-primary-soft" style={{ top: hl.top, height: hl.height, transition: hl.still ? 'none' : ['top', 'height'].map(k => `${k} ${GLIDE_MS}ms ${EASE}`).join(', ') }} />}

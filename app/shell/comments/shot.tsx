@@ -119,7 +119,7 @@ export function ShotEditor({ src, onCancel, onDone }: { src: string; onCancel: (
         <div className="relative min-h-0 flex-1 overflow-auto bg-zinc-800 p-4">
           <div className="relative mx-auto w-fit">
             <canvas ref={cv} onPointerDown={down} onPointerMove={move} onPointerUp={up} className={`block max-h-[52vh] max-w-full touch-none rounded-lg shadow-lg ${tool === 'text' ? 'cursor-text' : 'cursor-crosshair'}`} />
-            {typing && <input autoFocus placeholder="Type, then Enter" className="absolute h-7 rounded-md bg-white px-2 text-[13px] text-zinc-900 shadow outline-none ring-2 ring-proto-primary-ring" style={{ left: typing.x, top: typing.y - 14 }}
+            {typing && <input autoFocus placeholder="Type, then Enter" className="absolute h-7 rounded-md bg-white px-2 text-[13px] [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:text-base text-zinc-900 shadow outline-none ring-2 ring-proto-primary-ring" style={{ left: typing.x, top: typing.y - 14 }}
               onKeyDown={e => { if (e.key === 'Enter') { const v = e.currentTarget.value.trim(); if (v) setMarks(m => [...m, { tool: 'text', color, pts: [[typing.cx, typing.cy]], text: v }]); setTyping(null) } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setTyping(null) } }}
               onBlur={() => setTyping(null)} />}
           </div>
