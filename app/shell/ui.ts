@@ -38,6 +38,10 @@ export const ic = (name: string, cls = 'size-4') =>
 export const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
+// User text (titles, asks, names) can be Hebrew: isolated, it keeps its own direction inside an
+// English line. Text that stands alone in its element gets dir="auto" there instead.
+export const bd = (s: unknown) => `<bdi>${esc(s)}</bdi>`
+
 export const ON = 'bg-zinc-900/[.06] text-zinc-900 dark:bg-white/10 dark:text-white'
 export const TAB_ON = 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-white'
 export const TAB_OFF = 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
