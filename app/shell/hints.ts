@@ -3,12 +3,22 @@
 // useHints) and the page draws them in its Try it panel. Kept per mounted design, since a lobby
 // runs several at once and only the one on the stage is shown.
 
+/** What a thing to try asks for at its spot. */
+export type Act = 'click' | 'drag' | 'right-click' | 'type' | 'hover' | 'key'
+/** One step of a thing to try that takes several. */
+export type Step = { at: string; act?: Act; label?: string }
+
 export type Hint =
   /** Something to type. fill: a selector for the field inside the design that Fill in types it
    *  into. A function value is read again every second (a 2FA code that changes). */
   | { kind: 'value'; label: string; value: string | (() => string); fill?: string; note?: string }
-  /** Something worth trying, ticked off when the design says it was done. */
-  | { kind: 'try'; text: string; done?: boolean }
+  /** Something worth trying, ticked off when the design says it was done. Pointing at it in the
+   *  panel lights where it happens on the design (shell/spotlight.ts): at, a selector for where
+   *  you start, and to, where a drag ends. act: what you do there (from to, a drag; else a
+   *  click). label: what the spot is called instead of the act's word. key: a shortcut to press
+   *  ('⌘ K', keys apart by spaces). all: every match of at counts (any of these). steps: a thing
+   *  done in order (open a menu, then pick in it); the last step on the page is the one lit. */
+  | { kind: 'try'; text: string; done?: boolean; at?: string; to?: string; act?: Act; label?: string; key?: string; all?: boolean; steps?: Step[] }
   /** A scenario the design can be put in (Empty, Busy, Error, First visit). */
   | { kind: 'switch'; label: string; options: string[]; value: string; set: (option: string) => void }
   /** Something that would happen from outside (a message arrives, a payment fails). */
