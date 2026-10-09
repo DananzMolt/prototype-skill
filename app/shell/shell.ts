@@ -12,6 +12,7 @@ import { ic, esc, bd, ON, TAB_ON, TAB_OFF, IB, SEP, pulse, pop, item, ago, clock
 import { dock, edge, smooth, runDock, restoreEdgeLabels, stageHover, canHover, installPointerTracking, fadeOut } from './motion'
 import { hints, fillField, type Hint } from './hints'
 import { createSheet, createMenuSheet } from './sheet'
+import { createSpotlight, showable, showIcon, whereIs } from './spotlight'
 
 export type Variant = { id: string; name: string; file: string; load: () => Promise<unknown> }
 /** Something behind clicks in a prototype's variants (a menu, a drawer, a dialog), reached by
@@ -235,6 +236,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       <header data-bar class="relative z-30 flex h-12 shrink-0 items-center gap-1 border-b border-black/[.07] px-2 dark:border-white/10"></header>
       <div data-zone>
         <div data-layers class="absolute inset-0 overflow-hidden" style="right:var(--hw,0px);bottom:var(--pill-h,0px)"></div>
+        <div data-spot class="pointer-events-none absolute inset-0 z-[15] overflow-hidden" style="right:var(--hw,0px);bottom:var(--pill-h,0px)"></div>
         <div data-overlay></div>
         <div data-pill></div>
         <div data-scale-card></div>
@@ -1318,6 +1320,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     }
     if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); return act('side', (wide() ? st.side : st.drawer) ? '0' : '1', '') }
     if (e.key === 'Escape') {
+      if (tryEsc()) return
       if (card && card.phase !== 'exit') return closeCard()
       if (st.open) { st.open = null; return render() }
       if (st.drawer) { st.drawer = false; return render() }
@@ -1378,7 +1381,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const valueOf = (h: Extract<Hint, { kind: 'value' }>) => { try { return String(typeof h.value === 'function' ? h.value() : h.value) } catch { return '' } }
   const flash = () => { clearTimeout(hintTimer); hintTimer = window.setTimeout(() => { hintSaid = ''; hintCopied = -1; paintHints() }, 1400) }
 
-  function paintHints() {
+  function paintHints() { paintPanel(); syncSpot() }
+  function paintPanel() {
     const list = hintList()
     const docked = !!list.length && hintsOpen && wideMq.matches
     zone.style.setProperty('--hw', docked ? `${HINTS_W}px` : '0px')
@@ -1397,7 +1401,13 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
         <span dir="auto" class="w-[4.5rem] shrink-0 pt-px text-[11px] leading-4 text-zinc-500">${esc(h.label)}</span>
         <span class="min-w-0 flex-1"><span ${typeof h.value === 'function' ? `data-live="${i}" ` : ''}dir="auto" class="block break-all font-mono text-[12px] leading-[18px] text-zinc-900 dark:text-zinc-100">${esc(valueOf(h))}</span>${h.note ? `<span dir="auto" class="block text-[11px] leading-4 text-zinc-400">${esc(h.note)}</span>` : ''}</span>
         <span class="grid size-5 shrink-0 place-items-center ${hintCopied === i ? 'text-emerald-500' : 'text-zinc-400 opacity-0 group-hover/h:opacity-100 [@media(hover:none)]:opacity-100'}">${ic(hintCopied === i ? 'check' : 'copy', 'size-3.5')}</span></button>`
-    const tryRow = ({ h }: { h: Extract<Hint, { kind: 'try' }> }) => `<div class="flex items-start gap-2 px-2 py-1.5"><span class="mt-px grid size-4 shrink-0 place-items-center rounded-full ${h.done ? 'bg-emerald-500 text-white' : 'ring-1 ring-inset ring-zinc-300 dark:ring-zinc-600'}">${h.done ? ic('check', 'size-3') : ''}</span><span dir="auto" class="min-w-0 flex-1 text-[12.5px] leading-[18px] ${h.done ? 'text-zinc-400 line-through decoration-zinc-300 dark:decoration-zinc-600' : ''}">${esc(h.text)}</span></div>`
+    // A thing with a spot on the page answers pointing, focus and a tap (see the spotlight below).
+    const tryRow = ({ h, i }: { h: Extract<Hint, { kind: 'try' }>; i: number }) => {
+      const tick = `<span class="mt-px grid size-4 shrink-0 place-items-center rounded-full ${h.done ? 'bg-emerald-500 text-white' : 'ring-1 ring-inset ring-zinc-300 dark:ring-zinc-600'}">${h.done ? ic('check', 'size-3') : ''}</span>`
+      const text = `<span dir="auto" class="${showable(h) ? 'block' : 'min-w-0 flex-1'} text-[12.5px] leading-[18px] ${h.done ? 'text-zinc-400 line-through decoration-zinc-300 dark:decoration-zinc-600' : ''}">${esc(h.text)}</span>`
+      if (!showable(h)) return `<div class="flex items-start gap-2 px-2 py-1.5">${tick}${text}</div>`
+      return `<div data-try-row="${i}" tabindex="0" title="Show where on the page" class="group/t flex cursor-default items-start gap-2 rounded-md px-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 data-on:bg-amber-400/[.12] not-data-on:hover:bg-zinc-900/[.04] dark:not-data-on:hover:bg-white/[.06]">${tick}<span class="min-w-0 flex-1">${text}<span class="hidden text-[11px] leading-4 text-zinc-400 group-data-gone/t:block">Not on the page right now</span></span>${showIcon('mt-0.5 text-zinc-400 opacity-0 transition-opacity group-hover/t:opacity-100 group-data-on/t:text-amber-500 group-data-on/t:opacity-100')}</div>`
+    }
     const switchRow = ({ h, i }: { h: Extract<Hint, { kind: 'switch' }>; i: number }) => `<div class="flex flex-wrap gap-1 px-2 py-1">${h.options.map((o, j) => `<button data-hint="switch:${i}:${j}" aria-pressed="${o === h.value}" class="h-7 rounded-md px-2.5 text-xs ${o === h.value ? 'bg-zinc-900 font-medium text-white dark:bg-white dark:text-zinc-900' : 'bg-zinc-900/[.04] text-zinc-600 hover:bg-zinc-900/[.08] dark:bg-white/[.06] dark:text-zinc-300 dark:hover:bg-white/10'}">${bd(o)}</button>`).join('')}</div>`
     const eventRow = ({ h, i }: { h: Extract<Hint, { kind: 'event' }>; i: number }) => `<button data-hint="event:${i}" class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-zinc-900/[.04] dark:hover:bg-white/[.06]">${ic('bolt', 'size-3.5 text-amber-500')}${bd(h.label)}</button>`
     const canFill = values.some(x => x.h.fill)
@@ -1426,11 +1436,17 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     for (const el of hintBox.querySelectorAll<HTMLElement>('[data-live]')) { const h = list[Number(el.dataset.live)]; if (h?.kind === 'value') el.textContent = valueOf(h) }
   }, 1000)
   hintBox.addEventListener('click', e => {
+    const row = (e.target as Element).closest<HTMLElement>('[data-try-row]')
+    if (row) {
+      setTry(Number(row.dataset.tryRow), 'tap', 4000)
+      if (!wideMq.matches) { hintsOpen = false; paintHints() }
+      return
+    }
     const b = (e.target as Element).closest<HTMLElement>('[data-hint]')
     if (!b) return
     const [what, a, c] = b.dataset.hint!.split(':'), list = hintList(), h = list[Number(a)]
     try {
-      if (what === 'open' || what === 'close') { hintsOpen = what === 'open'; if (wideMq.matches) localStorage.setItem('proto-hints', hintsOpen ? '1' : '0') }
+      if (what === 'open' || what === 'close') { hintsOpen = what === 'open'; if (!hintsOpen) setTry(null); if (wideMq.matches) localStorage.setItem('proto-hints', hintsOpen ? '1' : '0') }
       else if (what === 'copy' && h?.kind === 'value') { navigator.clipboard?.writeText(valueOf(h)); hintCopied = Number(a); flash() }
       else if (what === 'fill') {
         const host = hintHost()
@@ -1448,6 +1464,66 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     } catch (err) { console.error('[prototype] a hint failed:', err) }
     paintHints()
   })
+
+  // Pointing at a thing to try lights where it happens on the design (spotlight.ts). Hovering
+  // a row shows it after a short wait (so running down the list doesn't flash it), and it
+  // stays 1.5 s after the pointer leaves, so it survives the trip to the spot. Focus shows it
+  // too; a click or a tap keeps it 4 s (touch has no hover) and moves a sheet over the design
+  // out of the way. Doing it, pressing on the design, Esc or another page puts it away; a thing
+  // done in steps stays lit through them, for 8 s, so its light can move to the next step.
+  const spot = createSpotlight(zone.querySelector<HTMLElement>('[data-spot]')!)
+  let tryOn: { i: number; via: 'hover' | 'focus' | 'tap'; host: HTMLElement; done: boolean } | null = null
+  let tryTimer = 0
+  // A thing just done stays dark while the pointer is still on its row: the panel redraws
+  // under the pointer, and the browser's hover on the new row would light it again.
+  let tryQuiet = -1
+  const tryAt = (i: number) => { const h = hintList()[i]; return h?.kind === 'try' && showable(h) ? h : null }
+  function setTry(i: number | null, via: 'hover' | 'focus' | 'tap' = 'hover', ms = 0) {
+    clearTimeout(tryTimer)
+    const host = hintHost(), h = i === null ? null : tryAt(i)
+    tryOn = i !== null && host && h ? { i, via, host, done: !!h.done } : null
+    if (tryOn && ms) tryTimer = window.setTimeout(() => setTry(null), ms)
+    syncSpot()
+  }
+  function syncSpot() {
+    const host = hintHost(), h = tryOn ? tryAt(tryOn.i) : null
+    if (tryOn && (!h || host !== tryOn.host || (h.done && !tryOn.done))) { clearTimeout(tryTimer); if (h?.done) tryQuiet = tryOn.i; tryOn = null }
+    if (tryOn && host && h) spot.show(host, h, String(tryOn.i)); else spot.hide()
+    for (const r of hintBox.querySelectorAll<HTMLElement>('[data-try-row]')) {
+      const on = tryOn?.i === Number(r.dataset.tryRow)
+      r.toggleAttribute('data-on', on)
+      r.toggleAttribute('data-gone', on && !!host && !!h && whereIs(host, h, zone) === 'gone')
+    }
+  }
+  function tryEsc() { if (!tryOn) return false; setTry(null); return true }
+  hintBox.addEventListener('pointerover', e => {
+    const r = e.pointerType === 'mouse' && (e.target as Element).closest<HTMLElement>('[data-try-row]')
+    if (!r) return
+    const i = Number(r.dataset.tryRow)
+    if (tryOn?.i === i || tryQuiet === i) return
+    clearTimeout(tryTimer)
+    if (tryOn) setTry(i)
+    else tryTimer = window.setTimeout(() => setTry(i), 120)
+  })
+  hintBox.addEventListener('pointerout', e => {
+    const r = e.pointerType === 'mouse' && (e.target as Element).closest('[data-try-row]')
+    if (!r || r.contains(e.relatedTarget as Node | null)) return
+    tryQuiet = -1
+    if (!tryOn) clearTimeout(tryTimer)
+    else if (tryOn.via === 'hover') { clearTimeout(tryTimer); tryTimer = window.setTimeout(() => setTry(null), 1500) }
+  })
+  hintBox.addEventListener('focusin', e => {
+    const r = (e.target as Element).closest<HTMLElement>('[data-try-row]')
+    if (r && tryOn?.via !== 'tap') setTry(Number(r.dataset.tryRow), 'focus')
+  })
+  hintBox.addEventListener('focusout', e => {
+    if ((e.target as Element).closest('[data-try-row]') && tryOn?.via === 'focus') setTry(null)
+  })
+  layers.addEventListener('pointerdown', () => {
+    if (!tryOn) return
+    if (tryAt(tryOn.i)?.steps?.length) { clearTimeout(tryTimer); tryOn.via = 'tap'; tryTimer = window.setTimeout(() => setTry(null), 8000) }
+    else setTry(null)
+  }, true)
 
   // ---------- theme, status, server ----------
   function setTheme(dark: boolean) {

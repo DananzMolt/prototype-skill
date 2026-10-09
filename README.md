@@ -104,7 +104,7 @@ Menus, drawers and steps inside a variant are listed under it in the sidebar, ea
 
 ### Try it, beside the design
 
-A variant can say what a reviewer needs to get through it, and the page shows it in a panel at the stage's right edge: values to type (a demo login, a 2FA code that changes every 30 seconds), each copied with a click or typed in with Fill in, things to try that tick themselves off, scenario switches (empty, busy, an error), events from outside (a message arrives, a payment fails) and what the prototype doesn't do. The design narrows beside it instead of being covered; on a phone it opens over the design, and closed it is a tab on the edge. Screenshots leave it out.
+A variant can say what a reviewer needs to get through it, and the page shows it in a panel at the stage's right edge: values to type (a demo login, a 2FA code that changes every 30 seconds), each copied with a click or typed in with Fill in, things to try that tick themselves off and, when you point at one, light up where on the design it happens (the rest dims, a label says Click, Grab and Drop or Press ⌘ K, and an arrow draws a drag), scenario switches (empty, busy, an error), events from outside (a message arrives, a payment fails) and what the prototype doesn't do. The design narrows beside it instead of being covered; on a phone it opens over the design, and closed it is a tab on the edge. Screenshots leave it out.
 
 ### Focus mode
 
