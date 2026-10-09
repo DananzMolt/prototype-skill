@@ -11,7 +11,7 @@
 import { ic, esc, bd, ON, TAB_ON, TAB_OFF, IB, SEP, pulse, pop, item, ago, clock } from './ui'
 import { dock, edge, smooth, runDock, restoreEdgeLabels, stageHover, canHover, installPointerTracking, fadeOut } from './motion'
 import { hints, fillField, type Hint } from './hints'
-import { createSheet } from './sheet'
+import { createSheet, createMenuSheet } from './sheet'
 
 export type Variant = { id: string; name: string; file: string; load: () => Promise<unknown> }
 /** Something behind clicks in a prototype's variants (a menu, a drawer, a dialog), reached by
@@ -111,6 +111,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     drawer: false,
     // The phone's variant sheet, opened from the bottom pill.
     sheet: false,
+    // The phone's bar opens its menus as sheets: the prototypes, or the session.
+    menu: '' as '' | 'protos' | 'session',
     tree: new Map<string, boolean>(),
     // On a phone the grid's phone cards open at half size; Fit leaves them tiny there.
     scale: matchMedia('(max-width: 639px)').matches ? 50 : 0,
@@ -235,11 +237,13 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
         <div data-layers class="absolute inset-0 overflow-hidden" style="right:var(--hw,0px);bottom:var(--pill-h,0px)"></div>
         <div data-overlay></div>
         <div data-pill></div>
+        <div data-scale-card></div>
         <aside data-hints></aside>
       </div>
     </div>
     <div data-drawer></div>
     <div data-sheet></div>
+    <div data-menu-sheet></div>
   </div>`
   const side = root.querySelector<HTMLElement>('[data-side]')!
   const grip = root.querySelector<HTMLElement>('[data-grip]')!
@@ -251,6 +255,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const hintBox = root.querySelector<HTMLElement>('[data-hints]')!
   const pill = root.querySelector<HTMLElement>('[data-pill]')!
   const paintSheet = createSheet(root.querySelector<HTMLElement>('[data-sheet]')!)
+  const paintMenu = createMenuSheet(root.querySelector<HTMLElement>('[data-menu-sheet]')!)
+  const cardHost = root.querySelector<HTMLElement>('[data-scale-card]')!
 
   // ---------- layers ----------
   let layer: Layer | null = null
@@ -546,6 +552,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     st.open = null
     st.drawer = false
     st.sheet = false
+    st.menu = ''
+    closeCard(true)
     if (p.view !== 'variant') st.focus = false
     localStorage.setItem(`proto-place-${session.id}`, hashOf(p))
     if (moved) show(fade && !!layer)
@@ -655,22 +663,23 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const row = (lead: string, body: string, end = '') => `<div class="flex min-h-10 items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] text-zinc-700 dark:text-zinc-300">${lead}<div class="min-w-0 flex-1">${body}</div>${end}</div>`
 
     const keep = !!st.status?.keep
-    const sessionMenu = `<div class="px-4 pb-2.5 pt-4"><div dir="auto" class="text-[15px] font-semibold">${esc(session.name)}</div><div class="mt-0.5 truncate text-xs text-zinc-500">${esc(session.path)} · started ${clock(session.createdAt)}</div></div>
-      <div class="space-y-0.5 px-1.5 pb-1.5">
+    const sessionHead = `<div class="px-4 pb-2.5 pt-4"><div dir="auto" class="text-[15px] font-semibold">${esc(session.name)}</div><div class="mt-0.5 truncate text-xs text-zinc-500">${esc(session.path)} · started ${clock(session.createdAt)}</div></div>`
+    const sessionBody = `<div class="space-y-0.5 px-1.5 pb-1.5">
         ${row(`<span class="grid size-4 place-items-center">${pulse('size-2', st.live && !st.stopped)}</span>`, st.stopped ? 'Stopped' : st.live ? `Live <span class="ml-1 text-xs text-zinc-400">${st.lastEdit ? `edited <span data-ago="${st.lastEdit}">${ago(st.lastEdit)}</span>` : 'waiting for edits'}</span>` : 'Reconnecting…')}
         ${row(ic('link', 'size-4 text-zinc-400'), `<span class="block truncate">${esc((session.url || location.origin).replace(/^https?:\/\//, ''))}</span>`, `<button data-act="copy" class="h-7 shrink-0 rounded-md px-2 text-xs text-zinc-500 hover:bg-zinc-900/5 dark:hover:bg-white/10">${st.copied ? 'Copied' : 'Copy'}</button>`)}
         ${lifecycle() ? row(ic('clock', 'size-4 self-start mt-0.5 text-zinc-400'), esc(lifecycle()).replace(' · ', '<span class="block text-xs leading-5 text-zinc-400">') + '</span>') : ''}
       </div>${SEP}
       <div class="flex h-14 items-center justify-between px-4"><span class="text-zinc-700 dark:text-zinc-300">Appearance</span><div class="flex rounded-lg bg-zinc-900/[.04] p-0.5 dark:bg-white/[.06]">${([['light', 'sun', 'Light'], ['dark', 'moon', 'Dark']] as const).map(([m, i, l]) => { const on = st.dark === (m === 'dark'); return `<button data-act="theme:${m}" aria-pressed="${on}" class="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs ${on ? TAB_ON : TAB_OFF}">${ic(i, 'size-3.5')}${l}</button>` }).join('')}</div></div>${SEP}
       <div class="flex gap-2 p-3"><button data-act="keep" ${st.stopped ? 'disabled' : ''} class="h-9 flex-1 rounded-lg border border-black/10 text-xs font-medium hover:bg-zinc-900/[.03] disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5">${keep ? 'Don’t keep' : 'Keep forever'}</button><button data-act="stop" ${st.stopped ? 'disabled' : ''} class="h-9 flex-1 rounded-lg text-xs text-zinc-500 hover:bg-zinc-900/5 disabled:opacity-40 dark:hover:bg-white/10">Stop server</button></div>`
+    const sessionMenu = sessionHead + sessionBody
 
     const protoRow = ({ p: q, depth }: { p: Proto; depth: number }) => { const on = q.id === p?.id && view !== 'session'; return `<button data-act="proto:${esc(q.id)}" aria-current="${on}" class="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left ${on ? 'bg-zinc-900/[.05] dark:bg-white/[.08]' : 'hover:bg-zinc-900/[.03] dark:hover:bg-white/5'}" style="padding-left:${10 + nestIndent(depth)}px">
         <span class="mt-[7px] flex size-1.5 shrink-0">${editing(q.id) ? pulse('size-1.5') : ''}</span>
         <span class="min-w-0 flex-1"><span class="flex items-center gap-1.5 ${on ? 'font-semibold text-zinc-900 dark:text-white' : 'font-medium text-zinc-800 dark:text-zinc-200'}">${depth ? ic('branch', 'size-3.5 shrink-0 text-sky-500') : ''}${bd(q.title)}${q.kind === 'phone' ? ic('phone', 'size-3.5 text-zinc-400') : ''}</span>${q.ask ? `<span dir="auto" class="block truncate text-xs leading-5 text-zinc-500">“${esc(q.ask)}”</span>` : ''}</span>
         <span class="shrink-0 pt-px text-right text-[11px] leading-5 tabular-nums text-zinc-400">${q.variants.length} variant${q.variants.length === 1 ? '' : 's'}<br>${editing(q.id) ? '<span class="text-emerald-600">editing now</span>' : pickOf(q) ? `<span class="${PICK}">picked ${esc(pickOf(q))}</span>` : clock(q.created)}</span></button>` }
-    const protoMenu = `<div class="px-3.5 pb-0.5 pt-3 text-[11px] font-medium text-zinc-400">Prototypes in this session</div>
-      <div class="max-h-[min(26rem,60vh)] space-y-px overflow-y-auto p-1">${treeOrder().map(protoRow).join('') || '<p class="px-3 py-4 text-xs text-zinc-400">None yet</p>'}</div>
+    const protoList = `<div class="max-h-[min(26rem,60vh)] space-y-px overflow-y-auto p-1">${treeOrder().map(protoRow).join('') || '<p class="px-3 py-4 text-xs text-zinc-400">None yet</p>'}</div>
       ${archived().length ? `${SEP}<div class="p-1.5"><button data-act="archived" class="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-xs text-zinc-400 hover:bg-zinc-900/[.03] hover:text-zinc-600 dark:hover:bg-white/5 dark:hover:text-zinc-200">${ic(st.archived ? 'chev' : 'right', 'size-3')}Archived<span class="ml-auto tabular-nums">${archived().length}</span></button>${st.archived ? archived().map(q => `<button data-act="proto:${esc(q.id)}" class="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-zinc-400 hover:bg-zinc-900/[.03] dark:hover:bg-white/5"><span class="size-1.5"></span><span dir="auto" class="line-through decoration-zinc-300">${esc(q.title)}</span><span class="ml-auto text-[11px] tabular-nums">${q.variants.length} variants</span></button>`).join('') : ''}</div>` : ''}`
+    const protoMenu = `<div class="px-3.5 pb-0.5 pt-3 text-[11px] font-medium text-zinc-400">Prototypes in this session</div>${protoList}`
 
     const col = (icon: string) => `<span class="flex w-6 shrink-0 justify-center text-zinc-500 dark:text-zinc-400">${icon}</span>`
     const vRow = (v: Variant) => { const on = view === 'variant' && vid === v.id; return `<div data-q="${v.id} ${esc(v.name)}"><button data-act="variant:${v.id}" aria-current="${on}" class="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left outline-none focus-visible:bg-zinc-900/[.06] dark:focus-visible:bg-white/10 ${on ? 'bg-zinc-900/[.05] font-semibold text-zinc-900 dark:bg-white/[.08] dark:text-white' : 'text-zinc-700 hover:bg-zinc-900/[.03] dark:text-zinc-300 dark:hover:bg-white/5'}"><span class="w-6 shrink-0 text-center text-xs font-semibold tabular-nums ${on ? '' : 'text-zinc-400'}">${v.id}</span><span dir="auto" class="min-w-0 flex-1 truncate">${esc(v.name)}</span>${p && editing(p.id, v.id) ? pulse('size-1.5') : ''}</button></div>` }
@@ -697,7 +706,18 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       ? `${sep}<div class="flex shrink-0 items-center sm:relative"><button data-act="open:levels" aria-expanded="${st.open === 'levels'}" aria-label="Built from ${line.length} levels" title="${esc(line.map(a => `${a.p.title}${a.v ? ` ${a.v}` : ''}`).join(' › '))}" class="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-sky-700 hover:bg-sky-500/15 dark:text-sky-300 ${st.open === 'levels' ? 'bg-sky-500/15' : 'bg-sky-500/10'}">${ic('layers', 'size-3.5')}${line.length}<span class="hidden sm:inline">levels</span></button>${pop(st.open === 'levels', levels, 'inset-x-2 top-12 sm:inset-x-auto sm:left-0 sm:top-10 sm:w-80')}</div>`
       : ((line.length ? `<span class="${line.length > 1 ? 'contents lg:hidden' : 'contents sm:hidden'}">${sep}<button data-act="side:1" class="${IB} px-0" aria-label="Built from ${esc(line.map(a => a.p.title).join(' › '))}">${ic('dots')}</button></span>` : '')
       + line.map((a, i) => `<span class="${i < line.length - 1 ? 'hidden lg:contents' : 'hidden sm:contents'}">${sep}<button data-act="${a.v && a.p.variants.some(x => x.id === a.v) ? `pv:${esc(a.p.id)}:${esc(a.v)}` : `lobby:proto:${esc(a.p.id)}`}" class="inline-flex h-9 min-w-0 items-center gap-1.5 rounded-md px-2 text-zinc-500 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"><span dir="auto" class="truncate">${esc(a.p.title)}</span>${a.v ? `<span class="shrink-0 rounded bg-zinc-900/[.06] px-1 text-[11px] font-semibold tabular-nums dark:bg-white/10">${esc(a.v)}</span>` : ''}</button></span>`).join(''))
-    bar.innerHTML = `<button data-act="side:1" class="${IB} shrink-0 ${st.side ? 'lg:hidden' : ''}" title="Show sidebar · ⌘\\" aria-label="Show sidebar">${ic('sidebar')}</button>
+    // On a phone the bar is back, title and session: back goes one level up (to the variant this
+    // was built from, else the session), the title opens the prototypes, ⋯ the session. The
+    // variant and the scale are in the pill.
+    const up = view === 'session' ? null : line.length
+      ? (a => ({ act: a.p.variants.some(x => x.id === a.v) ? `pv:${esc(a.p.id)}:${esc(a.v)}` : `lobby:proto:${esc(a.p.id)}`, label: a.p.title }))(line.at(-1)!)
+      : { act: 'lobby:session', label: session.name }
+    const phoneBar = `<div class="grid min-w-0 flex-1 grid-cols-[1fr_auto_1fr] items-center gap-1 sm:hidden">
+        <div class="flex min-w-0">${up ? `<button data-act="${up.act}" class="flex h-9 min-w-0 items-center gap-0.5 rounded-lg pr-2 text-zinc-600 active:bg-zinc-900/5 dark:text-zinc-400 dark:active:bg-white/10">${ic('left', 'size-5')}<span dir="auto" class="truncate">${esc(up.label)}</span></button>` : ''}</div>
+        <button data-act="menu:protos" aria-haspopup="dialog" class="flex h-10 min-w-0 max-w-[13rem] items-center gap-1 rounded-lg px-2 active:bg-zinc-900/5 dark:active:bg-white/10"><span class="min-w-0 leading-tight"><span dir="auto" class="block truncate font-semibold">${esc(view === 'session' ? session.name : p!.title)}</span>${where ? `<span dir="auto" class="block truncate text-[11px] font-medium text-sky-700 dark:text-sky-300">${whereHtml}</span>` : ''}</span>${ic('chev', 'size-3.5 shrink-0 text-zinc-400')}</button>
+        <div class="flex justify-end"><button data-act="menu:session" aria-label="Session" aria-haspopup="dialog" class="${IB} relative">${ic('dots')}<span class="absolute right-1 top-1 flex rounded-full ring-2 ring-white dark:ring-zinc-950">${pulse('size-1.5', st.live && !st.stopped)}</span></button></div>
+      </div>`
+    bar.innerHTML = `${phoneBar}<div class="hidden min-w-0 flex-1 items-center gap-1 sm:flex"><button data-act="side:1" class="${IB} shrink-0 ${st.side ? 'lg:hidden' : ''}" title="Show sidebar · ⌘\\" aria-label="Show sidebar">${ic('sidebar')}</button>
       <nav class="flex min-w-0 items-center" aria-label="Breadcrumb">
         ${crumb('lobby:session', 'session', `<span class="relative grid size-5 shrink-0 place-items-center rounded bg-zinc-900 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-900">${initial}<span class="absolute -right-1 -top-1 flex rounded-full ring-2 ring-white dark:ring-zinc-950">${pulse('size-2', st.live && !st.stopped)}</span></span><span dir="auto" class="hidden truncate md:inline">${esc(session.name)}</span>`, view === 'session', sessionMenu, 'left-2 top-12 w-[22rem] max-w-[calc(100vw-1rem)] sm:left-0')}
         ${ancestors}
@@ -708,7 +728,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       <div class="ml-auto flex items-center gap-1">
         <div class="hidden sm:block">${seg()}</div>
         ${phones ? `<div class="relative"><button data-act="open:scale" aria-expanded="${st.open === 'scale'}" class="${IB} text-xs tabular-nums ${st.open === 'scale' ? 'bg-zinc-900/5 text-zinc-900 dark:bg-white/10 dark:text-white' : ''}">${ic('phone')}<span data-scale-label>${scaleLabel()}</span></button>${pop(st.open === 'scale', scaleMenu, 'right-0 top-11 w-72')}</div>` : ''}
-      </div>`
+      </div></div>`
+    menus = { protos: protoList, session: sessionBody }
 
     function seg() {
       if (!p || !vs.length) return ''
@@ -802,15 +823,15 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const vs = p ? visible(p) : []
     const vid = st.place.view === 'variant' ? st.place.variant : ''
     const at = vs.findIndex(v => v.id === vid)
-    const key = pillOn() ? JSON.stringify([p!.id, vid, vs.map(v => [v.id, v.name]), p!.variants.length, editing(p!.id, vid), st.sheet]) : ''
+    const key = pillOn() ? JSON.stringify([p!.id, p!.kind, vid, vs.map(v => [v.id, v.name]), p!.variants.length, editing(p!.id, vid), st.sheet]) : ''
     if (key !== pillKey) {
       pillKey = key
-      if (!key) pill.innerHTML = ''
+      if (!key) { pill.innerHTML = ''; closeCard(true) }
       else {
         const v = vs[at]
         const prev = vs[at <= 0 ? vs.length - 1 : at - 1], next = vs[at < 0 || at === vs.length - 1 ? 0 : at + 1]
         pill.innerHTML = `<div class="absolute inset-x-0 bottom-0 z-10 flex h-[var(--pill-h,0px)] items-start justify-center pt-2 sm:hidden">
-          <div class="relative flex h-12 items-center gap-0.5 rounded-full bg-zinc-900/90 p-1 text-white shadow-xl shadow-black/20 ring-1 ring-white/10 backdrop-blur dark:bg-zinc-800/90">
+          <div data-pill-bar class="relative flex h-12 items-center gap-0.5 rounded-full bg-zinc-900/90 p-1 text-white shadow-xl shadow-black/20 ring-1 ring-white/10 backdrop-blur dark:bg-zinc-800/90">
             <div data-ruler hidden class="pointer-events-none absolute bottom-full left-1/2 mb-2 h-9 w-56 -translate-x-1/2 overflow-hidden rounded-full bg-zinc-900/90 shadow-lg ring-1 ring-white/10 [mask-image:linear-gradient(90deg,transparent,#000_25%,#000_75%,transparent)] dark:bg-zinc-800/90"></div>
             <button data-act="lobby:proto" aria-label="All variants" aria-pressed="${st.place.view === 'proto'}" class="${pillBtn} ${st.place.view === 'proto' ? '!bg-white !text-zinc-900' : ''}">${ic('grid')}</button>
             <span class="mx-0.5 h-5 w-px shrink-0 bg-white/15"></span>
@@ -820,10 +841,19 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
                 : `<span class="truncate font-medium">All variants</span><span class="shrink-0 text-[11px] tabular-nums text-white/40">${vs.length}</span>`}
             </div>
             <button data-act="variant:${next.id}" aria-label="Next variant: ${next.id} ${esc(next.name)}" class="${pillBtn}">${ic('right')}</button>
+            ${p!.kind === 'phone' ? `<span class="mx-0.5 h-5 w-px shrink-0 bg-white/15"></span><button data-pill-scale aria-label="Phone scale" aria-expanded="false" class="h-10 min-w-12 shrink-0 rounded-full px-2.5 text-xs font-medium tabular-nums text-white/70 transition-colors duration-200 active:bg-white/10"><span data-scale-label>${scaleLabel()}</span></button>` : ''}
           </div>
         </div>`
       }
     }
+    if (card) pill.querySelector('[data-pill-scale]')?.setAttribute('aria-expanded', String(card.phase !== 'exit'))
+    syncScale()
+    paintMenu({
+      open: !!st.menu,
+      title: st.menu === 'session' ? session.name : 'Prototypes',
+      html: st.menu ? menus[st.menu] : '',
+      onClose: () => { st.menu = ''; render() },
+    })
     paintSheet({
       open: st.sheet && !!key,
       title: p?.title ?? '',
@@ -834,6 +864,104 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       onLobby: () => { st.sheet = false; if (p) go({ view: 'proto', proto: p.id }); render() },
     })
   }
+
+  let menus = { protos: '', session: '' }
+
+  // ---------- the phone scale, in the pill ----------
+  // The pill's scale opens the same controls as the bar's scale menu (Fit and the sizes, then
+  // a slider), in the pill's dark. The card grows out of the button: it starts as the button,
+  // same place, size and round corners, opens into the card, and its controls fade in once
+  // there is room; closing folds it back. Turning it around halfway plays the running
+  // animation back from where it is.
+  const DARK_SEG = (on: boolean) => `h-9 flex-1 rounded-full text-xs font-medium tabular-nums ${on ? 'bg-white text-zinc-900' : 'text-white/70 hover:bg-white/10'}`
+  const cardHtml = () => `<div data-scale-backdrop class="fixed inset-0 z-20"></div>
+    <div data-card class="absolute z-30 w-[17.5rem] space-y-1 rounded-3xl bg-zinc-900/95 p-1.5 text-white shadow-xl shadow-black/20 ring-1 ring-white/10 backdrop-blur dark:bg-zinc-800/95" style="transform-origin:0 0">
+      <div class="flex gap-0.5 rounded-full bg-white/[.06] p-0.5">${SCALES.map(s => `<button data-act="scale:${s}" data-scale-seg="${s}" data-dark aria-pressed="${st.scale === s}" class="${DARK_SEG(st.scale === s)}">${s ? s + '%' : 'Fit'}</button>`).join('')}</div>
+      <div class="flex items-center">${['minus', 'plus'].map((n, i) => `<button data-act="scalestep:${i ? 5 : -5}" aria-label="${i ? 'Bigger' : 'Smaller'}" class="${i ? 'order-3' : ''} grid size-10 shrink-0 place-items-center rounded-full text-white/60 hover:bg-white/10 hover:text-white">${ic(n)}</button>`).join('')}<input data-scale-range type="range" min="${SCALE_MIN}" max="${SCALE_MAX}" step="1" value="${st.scale || 50}" aria-label="Phone scale" class="order-2 ${RANGE} ${st.scale ? '' : 'opacity-40'}" style="--p:${rangeAt(st.scale || 50)}%;--fill:#fff;--rest:rgb(255 255 255/.15)"></div>
+    </div>`
+  let card: { el: HTMLElement; phase: 'enter' | 'open' | 'exit'; anims: Animation[] } | null = null
+  const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches
+  const CARD_EASE_OUT = 'cubic-bezier(0.32, 0.72, 0, 1)', CARD_EASE_IN = 'cubic-bezier(0.4, 0, 1, 1)'
+
+  // Everything that shows the scale, updated in place so an open menu or a drag isn't rebuilt.
+  function syncScale(except?: HTMLInputElement) {
+    for (const l of root.querySelectorAll('[data-scale-label]')) l.textContent = scaleLabel()
+    for (const b of root.querySelectorAll<HTMLElement>('[data-scale-seg]')) { const on = Number(b.dataset.scaleSeg) === st.scale; b.setAttribute('aria-pressed', String(on)); b.className = b.hasAttribute('data-dark') ? DARK_SEG(on) : segCls(on) }
+    for (const r of root.querySelectorAll<HTMLInputElement>('[data-scale-range]')) {
+      if (r === except) continue
+      r.value = String(st.scale || 50)
+      r.style.setProperty('--p', `${rangeAt(st.scale || 50)}%`)
+      r.classList.toggle('opacity-40', !st.scale)
+    }
+  }
+  // Where the button sits, as the transform that turns the card into it.
+  function asButton(el: HTMLElement, btn: HTMLElement) {
+    const c = el.getBoundingClientRect(), b = btn.getBoundingClientRect()
+    const sx = b.width / c.width, sy = b.height / c.height, r = b.height / 2
+    return { transform: `translate(${b.left - c.left}px, ${b.top - c.top}px) scale(${sx}, ${sy})`, borderRadius: `${r / sx}px / ${r / sy}px` }
+  }
+  function settleCard(c: NonNullable<typeof card>, phase: 'enter' | 'exit', done: () => void) {
+    const anims = c.anims
+    Promise.all(anims.map(a => a.finished)).then(() => { if (card === c && c.anims === anims && c.phase === phase) done() }, () => {})
+  }
+  function openCard() {
+    const btn = pill.querySelector<HTMLElement>('[data-pill-scale]'), bar = btn?.closest<HTMLElement>('[data-pill-bar]')
+    if (!btn || !bar) return
+    btn.setAttribute('aria-expanded', 'true')
+    btn.classList.add('!bg-white', '!text-zinc-900')
+    if (card?.phase === 'exit') { card.el.style.pointerEvents = ''; cardHost.querySelector<HTMLElement>('[data-scale-backdrop]')!.style.pointerEvents = ''; card.anims.forEach(a => a.reverse()); card.phase = 'enter'; const c = card; settleCard(c, 'enter', () => { c.phase = 'open'; c.anims.forEach(a => a.cancel()); c.anims = [] }); return }
+    if (card) return
+    cardHost.innerHTML = cardHtml()
+    const el = cardHost.querySelector<HTMLElement>('[data-card]')!
+    const z = zone.getBoundingClientRect(), b = bar.getBoundingClientRect()
+    el.style.right = `${z.right - b.right}px`
+    el.style.bottom = `${z.bottom - b.top + 8}px`
+    card = { el, phase: 'open', anims: [] }
+    if (reduceMotion()) return
+    const from = asButton(el, btn)
+    card.phase = 'enter'
+    card.anims = [
+      el.animate([{ ...from, opacity: 0.6 }, { transform: 'none', borderRadius: '24px', opacity: 1 }], { duration: 340, easing: CARD_EASE_OUT }),
+      ...[...el.children].map(r => r.animate([{ opacity: 0 }, { opacity: 0, offset: 0.4 }, { opacity: 1 }], { duration: 340 })),
+    ]
+    const c = card
+    settleCard(c, 'enter', () => { c.phase = 'open'; c.anims = [] })
+  }
+  function closeCard(now = false) {
+    if (!card) return
+    const btn = pill.querySelector<HTMLElement>('[data-pill-scale]')
+    btn?.setAttribute('aria-expanded', 'false')
+    btn?.classList.remove('!bg-white', '!text-zinc-900')
+    const drop = () => { cardHost.innerHTML = ''; card = null }
+    if (now || reduceMotion() || !btn) { card.anims.forEach(a => a.cancel()); return drop() }
+    const c = card
+    if (c.phase === 'exit') return
+    if (c.phase === 'enter') {
+      // Held at its start once played back, so the card doesn't flash open before it goes.
+      c.anims.forEach(a => { a.effect?.updateTiming({ fill: 'both' }); a.reverse() })
+    } else {
+      const to = asButton(c.el, btn)
+      c.anims = [
+        c.el.animate([{ transform: 'none', borderRadius: '24px', opacity: 1 }, { ...to, opacity: 0 }], { duration: 240, easing: CARD_EASE_IN, fill: 'forwards' }),
+        ...[...c.el.children].map(r => r.animate([{ opacity: 1 }, { opacity: 0, offset: 0.4 }, { opacity: 0 }], { duration: 240, fill: 'forwards' })),
+      ]
+    }
+    c.phase = 'exit'
+    // While it folds away, a tap goes through to the pill, so the button can open it again.
+    c.el.style.pointerEvents = 'none'
+    cardHost.querySelector<HTMLElement>('[data-scale-backdrop]')!.style.pointerEvents = 'none'
+    settleCard(c, 'exit', drop)
+  }
+  pill.addEventListener('click', e => {
+    if (!(e.target as Element).closest('[data-pill-scale]')) return
+    card && card.phase !== 'exit' ? closeCard() : openCard()
+  })
+  cardHost.addEventListener('click', e => { if ((e.target as Element).closest('[data-scale-backdrop]')) closeCard() })
+  // The phone's sheets and scale card belong to the phone layout; widening past it closes them.
+  matchMedia('(min-width: 640px)').addEventListener('change', e => {
+    if (!e.matches || !(st.menu || st.sheet || card)) return
+    st.menu = ''; st.sheet = false; closeCard(true); render()
+  })
 
   // The letters around the finger, above the pill, while it drags.
   function paintRuler(d: PillDrag) {
@@ -1131,6 +1259,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       // Wide windows dock the sidebar (remembered); narrower ones open it as a drawer.
       case 'side': if (!wide()) { st.drawer = arg === '1'; return render() } st.side = arg === '1'; localStorage.setItem('proto-side', st.side ? '1' : '0'); return render()
       case 'drawer': st.drawer = arg === '1'; return render()
+      case 'menu': st.menu = arg as typeof st.menu; return render()
       case 'stack': st.stack = arg === '1'; localStorage.setItem('proto-lobby', st.stack ? 'stack' : 'grid'); return show(true)
       case 'scale': st.scale = Number(arg); render(); return fit()
       case 'scalestep': st.scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(((st.scale || 50) + Number(arg)) / 5) * 5)); render(); return fit()
@@ -1165,8 +1294,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       input.value = String(st.scale)
       input.style.setProperty('--p', `${rangeAt(st.scale)}%`)
       input.classList.remove('opacity-40')
-      bar.querySelector('[data-scale-label]')!.textContent = scaleLabel()
-      for (const b of bar.querySelectorAll<HTMLElement>('[data-scale-seg]')) { const on = Number(b.dataset.scaleSeg) === st.scale; b.setAttribute('aria-pressed', String(on)); b.className = segCls(on) }
+      syncScale(input)
       return fit()
     }
     if (!input.matches('[data-filter]')) return
@@ -1190,6 +1318,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     }
     if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); return act('side', (wide() ? st.side : st.drawer) ? '0' : '1', '') }
     if (e.key === 'Escape') {
+      if (card && card.phase !== 'exit') return closeCard()
       if (st.open) { st.open = null; return render() }
       if (st.drawer) { st.drawer = false; return render() }
       if (st.focus) return act('unfocus', '', '')
