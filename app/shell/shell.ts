@@ -1249,8 +1249,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   }
 
   // ---------- tab icon ----------
-  // The skill's cubes with the session's initial beside them, and the live dot (gray once the
-  // server is gone).
+  // The skill's icon with the session's initial in a badge that is also the live light (gray once
+  // the server is gone).
   let iconKey = ''
   function paintIcon() {
     const initial = esc((session.name.trim()[0] || 'P').toUpperCase())
