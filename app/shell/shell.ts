@@ -11,6 +11,7 @@
 import { ic, esc, bd, ON, TAB_ON, TAB_OFF, IB, SEP, pulse, pop, item, ago, clock } from './ui'
 import { dock, edge, smooth, runDock, restoreEdgeLabels, stageHover, canHover, installPointerTracking, fadeOut } from './motion'
 import { hints, fillField, type Hint } from './hints'
+import { createSheet } from './sheet'
 
 export type Variant = { id: string; name: string; file: string; load: () => Promise<unknown> }
 /** Something behind clicks in a prototype's variants (a menu, a drawer, a dialog), reached by
@@ -108,6 +109,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     side: q.has('side') ? q.get('side') !== '0' : localStorage.getItem('proto-side') !== '0',
     sideW: Math.min(SIDE_MAX, Math.max(SIDE_MIN, Number(localStorage.getItem('proto-side-w')) || SIDE_W)),
     drawer: false,
+    // The phone's variant sheet, opened from the bottom pill.
+    sheet: false,
     tree: new Map<string, boolean>(),
     // On a phone the grid's phone cards open at half size; Fit leaves them tiny there.
     scale: matchMedia('(max-width: 639px)').matches ? 50 : 0,
@@ -228,24 +231,26 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     </div>
     <div class="flex min-w-0 flex-1 flex-col">
       <header data-bar class="relative z-30 flex h-12 shrink-0 items-center gap-1 border-b border-black/[.07] px-2 dark:border-white/10"></header>
-      <div data-tabs></div>
       <div data-zone>
-        <div data-layers class="absolute inset-0" style="right:var(--hw,0px)"></div>
+        <div data-layers class="absolute inset-0 overflow-hidden" style="right:var(--hw,0px);bottom:var(--pill-h,0px)"></div>
         <div data-overlay></div>
+        <div data-pill></div>
         <aside data-hints></aside>
       </div>
     </div>
     <div data-drawer></div>
+    <div data-sheet></div>
   </div>`
   const side = root.querySelector<HTMLElement>('[data-side]')!
   const grip = root.querySelector<HTMLElement>('[data-grip]')!
   const drawer = root.querySelector<HTMLElement>('[data-drawer]')!
   const bar = root.querySelector<HTMLElement>('[data-bar]')!
-  const tabs = root.querySelector<HTMLElement>('[data-tabs]')!
   const zone = root.querySelector<HTMLElement>('[data-zone]')!
   const layers = root.querySelector<HTMLElement>('[data-layers]')!
   const overlay = root.querySelector<HTMLElement>('[data-overlay]')!
   const hintBox = root.querySelector<HTMLElement>('[data-hints]')!
+  const pill = root.querySelector<HTMLElement>('[data-pill]')!
+  const paintSheet = createSheet(root.querySelector<HTMLElement>('[data-sheet]')!)
 
   // ---------- layers ----------
   let layer: Layer | null = null
@@ -516,8 +521,9 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       t.style.paddingBlock = scale ? '20px' : ''
       inner.style.zoom = String(scale ? Math.min(scale / 100, (t.clientWidth - 24) / parseFloat(inner.style.width)) : .78 * t.clientWidth / 1200)
     }
-    if (!layer) return
-    const box = layer.el
+    if (layer) fitBox(layer.el)
+  }
+  function fitBox(box: HTMLElement) {
     box.style.setProperty('--stage-h', `${box.clientHeight}px`)
     for (const phone of box.querySelectorAll<HTMLElement>('[data-phone]')) {
       const room = phone.closest<HTMLElement>('[data-fit]') ?? box
@@ -539,6 +545,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     st.place = p
     st.open = null
     st.drawer = false
+    st.sheet = false
     if (p.view !== 'variant') st.focus = false
     localStorage.setItem(`proto-place-${session.id}`, hashOf(p))
     if (moved) show(fade && !!layer)
@@ -725,12 +732,9 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     keepScroll(side, st.side ? tree(false) : '')
     keepScroll(drawer, st.drawer ? `<div class="fixed inset-0 z-50 lg:hidden"><div data-act="drawer:0" class="absolute inset-0 bg-black/30"></div><div class="absolute inset-y-0 left-0 flex w-[19rem] max-w-[85%] flex-col bg-white shadow-2xl dark:bg-zinc-950">${tree(true)}</div></div>` : '')
 
-    const tabRow = seg()
-    tabs.className = tabRow ? 'flex shrink-0 justify-center border-b border-black/[.07] p-1.5 sm:hidden dark:border-white/10' : 'hidden'
-    tabs.innerHTML = tabRow
-
-    // Focus mode restyles the zone to cover the page; the mounted design stays put.
-    zone.className = st.focus ? 'fixed inset-0 z-[100] bg-white text-[13px] dark:bg-zinc-950' : 'relative min-h-0 flex-1'
+    // Focus mode restyles the zone to cover the page; the mounted design stays put. On a phone
+    // the variant pill takes a strip at the bottom of the stage, so it never covers the design.
+    zone.className = st.focus ? 'fixed inset-0 z-[100] bg-white text-[13px] dark:bg-zinc-950' : `relative min-h-0 flex-1 ${pillOn() ? 'max-sm:[--pill-h:calc(4.25rem+env(safe-area-inset-bottom))]' : ''}`
     document.documentElement.style.overflow = st.focus ? 'hidden' : ''
 
     const edgeBtn = (side: 'prev' | 'next') => {
@@ -770,7 +774,183 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     document.title = [where, v && `${v.id} · ${v.name}`, p?.title, session.name].filter(Boolean).join(' – ')
     paintIcon()
     paintHints()
+    paintPill()
   }
+
+  // ---------- the variant pill (phones) ----------
+  // Below 640px the variants live in one floating pill at the bottom of the stage: it names
+  // the variant, its arrows step, a tap opens the sheet of all of them, and a drag along it
+  // moves through them, one variant per short stretch of finger. While the finger moves, the
+  // stage slides with it: the design next in line comes in beside this one, one phone apart at
+  // the phone scale (or one stage width for a web prototype), so at 50% the neighbour shows
+  // early and at 100% it is a full page away. It is mounted only for the drag.
+  const STEP = 34
+  const pillOn = () => { const p = cur(); return !!p && st.place.view !== 'session' && !st.focus && visible(p).length > 0 }
+  type Peek = { layer: Layer; place: Place }
+  type PillDrag = {
+    id: number; x0: number; lastX: number; lastT: number; v: number; moved: boolean
+    proto: Proto; ids: string[]; base: number; pos: number
+    real: Layer | null; peeks: Map<number, Peek>; pitch: number; raf: number; target: number
+  }
+  let pd: PillDrag | null = null
+  let pillKey = ''
+  const pillBtn = 'grid size-10 shrink-0 place-items-center rounded-full text-white/70 active:bg-white/10'
+
+  function paintPill() {
+    const p = cur()
+    if (pd) return
+    const vs = p ? visible(p) : []
+    const vid = st.place.view === 'variant' ? st.place.variant : ''
+    const at = vs.findIndex(v => v.id === vid)
+    const key = pillOn() ? JSON.stringify([p!.id, vid, vs.map(v => [v.id, v.name]), p!.variants.length, editing(p!.id, vid), st.sheet]) : ''
+    if (key !== pillKey) {
+      pillKey = key
+      if (!key) pill.innerHTML = ''
+      else {
+        const v = vs[at]
+        const prev = vs[at <= 0 ? vs.length - 1 : at - 1], next = vs[at < 0 || at === vs.length - 1 ? 0 : at + 1]
+        pill.innerHTML = `<div class="absolute inset-x-0 bottom-0 z-10 flex h-[var(--pill-h,0px)] items-start justify-center pt-2 sm:hidden">
+          <div class="relative flex h-12 items-center gap-0.5 rounded-full bg-zinc-900/90 p-1 text-white shadow-xl shadow-black/20 ring-1 ring-white/10 backdrop-blur dark:bg-zinc-800/90">
+            <div data-ruler hidden class="pointer-events-none absolute bottom-full left-1/2 mb-2 h-9 w-56 -translate-x-1/2 overflow-hidden rounded-full bg-zinc-900/90 shadow-lg ring-1 ring-white/10 [mask-image:linear-gradient(90deg,transparent,#000_25%,#000_75%,transparent)] dark:bg-zinc-800/90"></div>
+            <button data-act="lobby:proto" aria-label="All variants" aria-pressed="${st.place.view === 'proto'}" class="${pillBtn} ${st.place.view === 'proto' ? '!bg-white !text-zinc-900' : ''}">${ic('grid')}</button>
+            <span class="mx-0.5 h-5 w-px shrink-0 bg-white/15"></span>
+            <button data-act="variant:${prev.id}" aria-label="Previous variant: ${prev.id} ${esc(prev.name)}" class="${pillBtn}">${ic('left')}</button>
+            <div data-pill-handle role="button" tabindex="0" aria-label="${v ? `${v.id} ${esc(v.name)}, ${at + 1} of ${vs.length}. ` : ''}Show all variants" class="flex h-10 w-40 min-w-0 cursor-grab touch-none select-none items-center justify-center gap-1.5 rounded-full px-2 active:bg-white/10">
+              ${v ? `<b data-pill-id class="shrink-0 text-[15px]">${v.id}</b><span data-pill-name dir="auto" class="min-w-0 truncate text-white/70">${esc(v.name)}</span><span data-pill-n class="shrink-0 text-[11px] tabular-nums text-white/40">${at + 1}/${vs.length}</span>${editing(p!.id, v.id) ? pulse('size-1.5') : ''}`
+                : `<span class="truncate font-medium">All variants</span><span class="shrink-0 text-[11px] tabular-nums text-white/40">${vs.length}</span>`}
+            </div>
+            <button data-act="variant:${next.id}" aria-label="Next variant: ${next.id} ${esc(next.name)}" class="${pillBtn}">${ic('right')}</button>
+          </div>
+        </div>`
+      }
+    }
+    paintSheet({
+      open: st.sheet && !!key,
+      title: p?.title ?? '',
+      rows: vs.map(v => ({ id: v.id, name: v.name, on: v.id === vid, picked: v.id === (p ? pickOf(p) : ''), editing: !!p && editing(p.id, v.id) })),
+      lobby: st.place.view === 'proto',
+      onClose: () => { st.sheet = false; render() },
+      onPick: id => { st.sheet = false; if (p) go(keepIn(p, id)); render() },
+      onLobby: () => { st.sheet = false; if (p) go({ view: 'proto', proto: p.id }); render() },
+    })
+  }
+
+  // The letters around the finger, above the pill, while it drags.
+  function paintRuler(d: PillDrag) {
+    const r = pill.querySelector<HTMLElement>('[data-ruler]')
+    if (!r) return
+    r.hidden = false
+    r.innerHTML = d.ids.map((id, i) => ({ id, off: i - d.pos })).filter(x => Math.abs(x.off) < 4).map(({ id, off }) =>
+      `<span class="absolute top-0 grid h-9 w-8 place-items-center text-[13px] font-semibold text-white" style="left:${112 - 16 + off * 32}px;opacity:${1 - Math.min(1, Math.abs(off)) * 0.55}">${id}</span>`).join('')
+      + '<span class="absolute left-1/2 top-1 h-7 w-8 -translate-x-1/2 rounded-full ring-1 ring-white/40"></span>'
+    const i = Math.min(d.ids.length - 1, Math.max(0, Math.round(d.pos))), v = d.proto.variants.find(x => x.id === d.ids[i])!
+    const set = (sel: string, text: string) => { const el = pill.querySelector(sel); if (el) el.textContent = text }
+    set('[data-pill-id]', v.id); set('[data-pill-name]', v.name); set('[data-pill-n]', `${i + 1}/${d.ids.length}`)
+  }
+
+  // The stage follows pos: this design moves off by its distance from pos, and the variants on
+  // either side of pos are mounted beside it (inert) while they are in reach.
+  function slide(d: PillDrag) {
+    if (!d.real || d.real !== layer || !d.pitch) return
+    d.real.el.style.transform = `translate3d(${(d.base - d.pos) * d.pitch}px,0,0)`
+    const want = new Set([Math.floor(d.pos), Math.ceil(d.pos)].filter(i => i >= 0 && i < d.ids.length && i !== d.base))
+    for (const [i, k] of d.peeks) if (!want.has(i)) { k.layer.el.remove(); k.layer.dispose(); d.peeks.delete(i) }
+    for (const i of want) {
+      if (!d.peeks.has(i)) {
+        const place = keepIn(d.proto, d.ids[i]), l = buildLayer(place)
+        l.el.inert = true
+        l.el.style.pointerEvents = 'none'
+        layers.append(l.el)
+        fitBox(l.el)
+        d.peeks.set(i, { layer: l, place })
+      }
+      d.peeks.get(i)!.layer.el.style.transform = `translate3d(${(i - d.pos) * d.pitch}px,0,0)`
+    }
+  }
+  function endSlide(d: PillDrag, keep?: number) {
+    if (d.real) d.real.el.style.transform = ''
+    for (const [i, k] of d.peeks) if (i !== keep) { k.layer.el.remove(); k.layer.dispose() }
+  }
+
+  // Past either end it gives a little, then stops.
+  const rubber = (x: number, n: number) => { const give = (o: number) => 0.35 * (1 - 1 / (o * 1.2 + 1)); return x < 0 ? -give(-x) : x > n - 1 ? n - 1 + give(x - n + 1) : x }
+
+  function land(d: PillDrag, target: number) {
+    const k = d.peeks.get(target)
+    const place = k?.place ?? keepIn(d.proto, d.ids[target])
+    pd = null
+    pill.querySelector<HTMLElement>('[data-ruler]')?.setAttribute('hidden', '')
+    if (target === d.base) { endSlide(d); pillKey = ''; return render() }
+    // The design that slid in becomes the page's layer as it is, so nothing remounts or fades;
+    // the place is set first, so the hash change that follows only redraws the chrome.
+    if (k && d.real && d.real === layer) {
+      endSlide(d, target)
+      k.layer.el.style.transform = ''
+      k.layer.el.style.pointerEvents = ''
+      k.layer.el.inert = false
+      layer = k.layer
+      d.real.el.remove(); d.real.dispose()
+      st.place = place
+      fit()
+    } else endSlide(d)
+    go(place)
+  }
+
+  pill.addEventListener('pointerdown', e => {
+    let h = (e.target as Element).closest<HTMLElement>('[data-pill-handle]')
+    if (!h || e.button !== 0) return
+    // A second finger mid-drag is ignored; a touch while the last drag settles lands it now
+    // (which may redraw the pill, so the handle is looked up again).
+    if (pd) { if (!pd.raf) return; cancelAnimationFrame(pd.raf); land(pd, pd.target); h = pill.querySelector<HTMLElement>('[data-pill-handle]') }
+    const p = cur()
+    if (!h || !p) return
+    const ids = visible(p).map(v => v.id)
+    const vid = st.place.view === 'variant' ? st.place.variant : ''
+    const base = ids.indexOf(vid)
+    const real = base >= 0 && st.place.view === 'variant' && !st.place.tool ? layer : null
+    const phone = real?.el.querySelector<HTMLElement>('[data-phone]')
+    const pitch = real ? (phone ? phone.getBoundingClientRect().width : real.el.clientWidth) + 24 : 0
+    h.setPointerCapture(e.pointerId)
+    pd = { id: e.pointerId, x0: e.clientX, lastX: e.clientX, lastT: e.timeStamp, v: 0, moved: false, proto: p, ids, base, pos: Math.max(0, base), real, peeks: new Map(), pitch, raf: 0, target: base }
+  })
+  pill.addEventListener('pointermove', e => {
+    const d = pd
+    if (!d || e.pointerId !== d.id) return
+    const dx = e.clientX - d.x0
+    if (!d.moved && Math.abs(dx) < 6) return
+    d.moved = true
+    const dt = Math.max(1, e.timeStamp - d.lastT)
+    d.v = 0.7 * d.v + 0.3 * ((e.clientX - d.lastX) / dt)
+    d.lastX = e.clientX; d.lastT = e.timeStamp
+    d.pos = rubber(Math.max(0, d.base) - dx / STEP, d.ids.length)
+    paintRuler(d)
+    slide(d)
+  })
+  const pillUp = (e: PointerEvent) => {
+    const d = pd
+    if (!d || e.pointerId !== d.id || d.raf) return
+    if (!d.moved) { pd = null; if (e.type === 'pointerup') { st.sheet = true; render() } return }
+    // A flick carries on past the finger; a deliberate drag lands where it was let go.
+    const v = e.timeStamp - d.lastT > 80 ? 0 : d.v
+    const target = Math.min(d.ids.length - 1, Math.max(0, Math.round(d.pos - (Math.abs(v) > 0.45 ? v * 100 : 0) / STEP)))
+    d.target = target
+    const from = d.pos, t0 = performance.now(), dur = Math.min(420, 220 + 50 * Math.abs(target - from))
+    if (!d.real || matchMedia('(prefers-reduced-motion: reduce)').matches) return land(d, target)
+    const tick = (now: number) => {
+      const k = Math.min(1, (now - t0) / dur)
+      d.pos = from + (target - from) * (1 - Math.pow(1 - k, 3))
+      paintRuler(d)
+      slide(d)
+      if (k < 1) d.raf = requestAnimationFrame(tick)
+      else land(d, target)
+    }
+    d.raf = requestAnimationFrame(tick)
+  }
+  pill.addEventListener('pointerup', pillUp)
+  pill.addEventListener('pointercancel', pillUp)
+  pill.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && (e.target as Element).closest('[data-pill-handle]')) { e.preventDefault(); st.sheet = true; render() }
+  })
 
   // ---------- sidebar ----------
   // Prototypes as a tree: each opens to its variants. A prototype built from a variant is one
@@ -1015,7 +1195,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       if (st.focus) return act('unfocus', '', '')
       if (st.place.view === 'variant' && st.place.tool) return go(untool(st.place))
     }
-    if (e.metaKey || e.ctrlKey || e.altKey || t.closest?.(INTERACTIVE)) return
+    if (e.metaKey || e.ctrlKey || e.altKey || st.sheet || t.closest?.(INTERACTIVE)) return
     if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && st.place.view === 'variant') { e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1) }
     else if (e.key === 'f' && st.place.view === 'variant') act(st.focus ? 'unfocus' : 'focus', '', '')
     else if (e.key === 'w' && workOf()) act('work', 'go', '')

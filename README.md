@@ -67,7 +67,7 @@ Keep going in the same session and everything lands in the same app, under the s
 
 ### Every variant is a real page
 
-Breadcrumbs go session › prototype › variant. Each name opens an overview, each chevron jumps anywhere, and the tabs or the arrow keys step through variants. A sidebar shows the same thing as a tree. A prototype built from part of another variant (its hero, then that hero's CTA) is a row under the variant it came from; open it and the sidebar shows only that branch, with what it was built from listed one line per level, so five levels deep reads as easily as one. Hide the sidebar with ⌘\ for breadcrumbs alone.
+Breadcrumbs go session › prototype › variant. Each name opens an overview, each chevron jumps anywhere, and the tabs or the arrow keys step through variants. On a phone the tabs become one pill at the bottom of the stage: drag along it and the designs slide past under your finger, one phone apart at the phone scale you set, or tap it for a sheet of every variant. A sidebar shows the same thing as a tree. A prototype built from part of another variant (its hero, then that hero's CTA) is a row under the variant it came from; open it and the sidebar shows only that branch, with what it was built from listed one line per level, so five levels deep reads as easily as one. Hide the sidebar with ⌘\ for breadcrumbs alone.
 
 ### Working on one variant
 

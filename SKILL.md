@@ -13,7 +13,7 @@ updates through hot module replacement, never a reload. Everything the user asks
 session lives in that one app: **session › prototype › variant**.
 
 The app already has its navigation (a sidebar tree, breadcrumbs that open lobbies, jump menus,
-variant tabs, edge arrows, a focus mode with a dock, light and dark, phone frames, "editing" dots,
+variant tabs (on a phone, a pill at the bottom you drag along), edge arrows, a focus mode with a dock, light and dark, phone frames, "editing" dots,
 a "Working on" card for the variant being changed). You only write variant files.
 
 `proto` below means `node "${CLAUDE_SKILL_DIR}/scripts/proto.mjs"` (through `node`, the path in
