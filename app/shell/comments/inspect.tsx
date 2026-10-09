@@ -158,6 +158,20 @@ export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Tar
       // Enter or Space on something focused in the design would use it too.
       else if ((e.key === 'Enter' || e.key === ' ') && inDesign(e.target)) { e.preventDefault(); e.stopPropagation() }
     }
+    // The outline follows its element however it moves: scrolling, the phone's scale, a reflow.
+    let raf = 0, last = ''
+    const follow = () => {
+      const m = host.mount(), el = cur.current
+      if (el) {
+        if (!el.isConnected) show(null, false)
+        else {
+          const box = m && seen(el, m, host.layer), key = JSON.stringify(box)
+          if (key !== last) { last = key; if (box) setHover(h => h && { ...h, box }) }
+        }
+      }
+      raf = requestAnimationFrame(follow)
+    }
+    raf = requestAnimationFrame(follow)
     const scroll = () => { const m = host.mount(), box = cur.current && m && seen(cur.current, m, host.layer); if (box) setHover(h => h && { ...h, box }) }
     const opts = { capture: true, passive: false } as const
     const stage = host.layer.parentElement!
@@ -170,6 +184,7 @@ export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Tar
     stage.addEventListener('scroll', scroll, true)
     return () => {
       settle()
+      cancelAnimationFrame(raf)
       stage.removeEventListener('pointermove', move)
       for (const t of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'dblclick', 'contextmenu']) document.removeEventListener(t, press, true)
       document.removeEventListener('touchstart', touchStart, opts)
