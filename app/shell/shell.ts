@@ -31,6 +31,20 @@ type Layer = { el: HTMLElement; refs: unknown[]; ready: Promise<unknown>; dispos
 type Status = { lastEdit: number; keep: boolean; idleHours: number; deleteDays: number }
 
 const PHONE = 'shrink-0 overflow-hidden rounded-[55px] border-[10px] border-zinc-900 bg-white text-zinc-900 shadow-xl dark:border-zinc-700 dark:bg-black dark:text-white'
+// The phone scale: Fit (0) or a percentage. The menu offers these in a row and a slider for
+// anything between, which lands on one of them within two points.
+const SCALES = [0, 50, 75, 100]
+const SCALE_MIN = 25
+const SCALE_MAX = 100
+const rangeAt = (v: number) => ((v - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100
+const segCls = (on: boolean) => `h-9 flex-1 rounded-md text-xs font-medium tabular-nums ${on ? TAB_ON : TAB_OFF}`
+// A range input drawn the same in every browser (iOS Safari restyles its own): the track fills
+// to --p, the thumb is a white disc.
+const RANGE = 'h-11 min-w-0 flex-1 cursor-pointer appearance-none bg-transparent px-1 outline-none [--fill:#18181b] [--rest:rgb(24_24_27/.1)] dark:[--fill:#fff] dark:[--rest:rgb(255_255_255/.15)] '
+  + '[&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-[linear-gradient(to_right,var(--fill)_var(--p),var(--rest)_var(--p))] '
+  + '[&::-webkit-slider-thumb]:-mt-[9px] [&::-webkit-slider-thumb]:size-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_1px_4px_rgba(0,0,0,.25),0_0_0_1px_rgba(0,0,0,.08)] focus-visible:[&::-webkit-slider-thumb]:shadow-[0_0_0_2px_#0ea5e9] '
+  + '[&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-(--rest) [&::-moz-range-progress]:h-1.5 [&::-moz-range-progress]:rounded-full [&::-moz-range-progress]:bg-(--fill) '
+  + '[&::-moz-range-thumb]:size-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-[0_1px_4px_rgba(0,0,0,.25),0_0_0_1px_rgba(0,0,0,.08)]'
 // The sidebar's width: dragged between these, double-click resets it.
 const SIDE_W = 288, SIDE_MIN = 200, SIDE_MAX = 480
 const INTERACTIVE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="slider"], [role="listbox"], [role="menu"]'
@@ -95,7 +109,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     sideW: Math.min(SIDE_MAX, Math.max(SIDE_MIN, Number(localStorage.getItem('proto-side-w')) || SIDE_W)),
     drawer: false,
     tree: new Map<string, boolean>(),
-    scale: 0,
+    // On a phone the grid's phone cards open at half size; Fit leaves them tiny there.
+    scale: matchMedia('(max-width: 639px)').matches ? 50 : 0,
     stack: q.has('stack') ? q.get('stack') !== '0' : localStorage.getItem('proto-lobby') === 'stack',
     dark: q.get('theme') ? q.get('theme') === 'dark' : stored ? stored === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches,
     copied: false,
@@ -273,6 +288,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   document.addEventListener('visibilitychange', reloadIfStale)
 
   // The 10px bezel sits outside the screen, so the frame is the screen plus 20 each way.
+  const scaleLabel = () => (st.scale ? `${st.scale}%` : 'Fit')
   const phoneSize = (proto: Proto) => `width:${proto.screen[0] + 20}px;height:${proto.screen[1] + 20}px`
   // A phone's card holds the phone itself, so the phone scale can size it (see fit).
   const thumb = (proto: Proto, aspect: string) => proto.kind === 'phone'
@@ -616,7 +632,9 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const from = many ? Math.min(Math.max(0, at - 2), vs.length - 5) : 0
     const shown = many ? vs.slice(from, from + 5) : vs
     const phones = p?.kind === 'phone' && view !== 'session'
-    const scaleBtn = (s: number) => `<button data-act="scale:${s}" class="flex h-10 w-full items-center rounded-lg px-3 text-left hover:bg-zinc-900/[.03] dark:hover:bg-white/5 ${st.scale === s ? 'font-medium text-zinc-900 dark:text-white' : 'text-zinc-600 dark:text-zinc-300'}">${s ? s + '%' : 'Fit to window'}</button>`
+    const scaleStep = (d: number, icon: string, label: string) => `<button data-act="scalestep:${d}" aria-label="${label}" title="${label}" class="grid size-10 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-900/5 hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white">${ic(icon)}</button>`
+    const scaleMenu = `<div class="space-y-1.5 p-2"><div class="flex gap-0.5 rounded-lg bg-zinc-900/[.04] p-0.5 dark:bg-white/[.06]">${SCALES.map(s => `<button data-act="scale:${s}" data-scale-seg="${s}" aria-pressed="${st.scale === s}" class="${segCls(st.scale === s)}">${s ? s + '%' : 'Fit'}</button>`).join('')}</div>
+      <div class="flex items-center">${scaleStep(-5, 'minus', 'Smaller')}<input data-scale-range type="range" min="${SCALE_MIN}" max="${SCALE_MAX}" step="1" value="${st.scale || 50}" aria-label="Phone scale" class="${RANGE} ${st.scale ? '' : 'opacity-40'}" style="--p:${rangeAt(st.scale || 50)}%">${scaleStep(5, 'plus', 'Bigger')}</div></div>`
 
     // Each crumb is two buttons: the name opens that level's lobby, the chevron jumps.
     const crumb = (act: string, menu: string, label: string, current: boolean, html: string, cls: string) => `<div class="flex min-w-0 items-center sm:relative">
@@ -676,7 +694,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       </nav>
       <div class="ml-auto flex items-center gap-1">
         <div class="hidden sm:block">${seg()}</div>
-        ${phones ? `<div class="relative"><button data-act="open:scale" class="${IB} text-xs tabular-nums">${ic('phone')}${st.scale ? st.scale + '%' : 'Fit'}</button>${pop(st.open === 'scale', `<div class="p-1.5">${[0, 100, 75, 50].map(scaleBtn).join('')}</div>`, 'right-0 top-11 w-44')}</div>` : ''}
+        ${phones ? `<div class="relative"><button data-act="open:scale" aria-expanded="${st.open === 'scale'}" class="${IB} text-xs tabular-nums ${st.open === 'scale' ? 'bg-zinc-900/5 text-zinc-900 dark:bg-white/10 dark:text-white' : ''}">${ic('phone')}<span data-scale-label>${scaleLabel()}</span></button>${pop(st.open === 'scale', scaleMenu, 'right-0 top-11 w-72')}</div>` : ''}
       </div>`
 
     function seg() {
@@ -728,7 +746,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
             ${many ? `<button data-act="step:-1" class="${dockBtn} w-7" aria-label="Previous">${ic('left', 'size-3.5')}</button>` : ''}
             ${shown.map(x => `<button data-act="variant:${x.id}" title="${esc(x.name)}" class="relative grid size-9 shrink-0 place-items-center rounded-full text-xs font-semibold ${vid === x.id ? 'bg-white text-zinc-900' : 'text-white/70 hover:bg-white/10'}">${x.id}${editing(p.id, x.id) ? `<span class="absolute right-1 top-1">${pulse('size-1.5')}</span>` : ''}</button>`).join('')}
             ${many ? `<button data-act="step:1" class="${dockBtn} w-7" aria-label="Next">${ic('right', 'size-3.5')}</button><span class="px-1.5 text-xs tabular-nums text-white/60">${at + 1}/${vs.length}</span>` : ''}${dockSep}
-            ${phones ? `<button data-act="scale:${[0, 100, 75, 50][([0, 100, 75, 50].indexOf(st.scale) + 1) % 4]}" class="h-9 shrink-0 rounded-full px-2 text-xs tabular-nums text-white/70 hover:bg-white/10" title="Phone scale">${st.scale ? st.scale + '%' : 'Fit'}</button>` : ''}
+            ${phones ? `<button data-act="scale:${[0, 100, 75, 50][([0, 100, 75, 50].indexOf(st.scale) + 1) % 4]}" class="h-9 shrink-0 rounded-full px-2 text-xs tabular-nums text-white/70 hover:bg-white/10" title="Phone scale">${scaleLabel()}</button>` : ''}
             <button data-act="theme:${st.dark ? 'light' : 'dark'}" class="${dockBtn}" aria-label="Theme">${ic(st.dark ? 'sun' : 'moon')}</button>
           </div>
         </div>
@@ -928,7 +946,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       case 'side': if (!wide()) { st.drawer = arg === '1'; return render() } st.side = arg === '1'; localStorage.setItem('proto-side', st.side ? '1' : '0'); return render()
       case 'drawer': st.drawer = arg === '1'; return render()
       case 'stack': st.stack = arg === '1'; localStorage.setItem('proto-lobby', st.stack ? 'stack' : 'grid'); return show(true)
-      case 'scale': st.scale = Number(arg); st.open = null; render(); return fit()
+      case 'scale': st.scale = Number(arg); render(); return fit()
+      case 'scalestep': st.scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(((st.scale || 50) + Number(arg)) / 5) * 5)); render(); return fit()
       case 'theme': return setTheme(arg === 'dark')
       case 'focus': if (st.place.view !== 'variant') return; st.focus = true; st.open = null; dock.hold = performance.now() + 1600; edge.hover = {}; render(); return fit()
       case 'unfocus': st.focus = false; st.open = null; edge.hover = {}; render(); return fit()
@@ -953,6 +972,17 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
 
   root.addEventListener('input', e => {
     const input = e.target as HTMLInputElement
+    // The slider repaints only what shows its value: rebuilding the bar would end the drag.
+    if (input.matches('[data-scale-range]')) {
+      const v = Number(input.value)
+      st.scale = SCALES.find(s => s && Math.abs(s - v) <= 2) ?? v
+      input.value = String(st.scale)
+      input.style.setProperty('--p', `${rangeAt(st.scale)}%`)
+      input.classList.remove('opacity-40')
+      bar.querySelector('[data-scale-label]')!.textContent = scaleLabel()
+      for (const b of bar.querySelectorAll<HTMLElement>('[data-scale-seg]')) { const on = Number(b.dataset.scaleSeg) === st.scale; b.setAttribute('aria-pressed', String(on)); b.className = segCls(on) }
+      return fit()
+    }
     if (!input.matches('[data-filter]')) return
     const list = input.closest('[data-pop]')!.querySelector('[data-vlist]')!, needle = input.value.toLowerCase()
     let any = false
