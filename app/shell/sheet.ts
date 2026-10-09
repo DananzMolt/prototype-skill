@@ -54,6 +54,30 @@ function Sheet(p: SheetProps) {
                 h('span', { className: 'shrink-0 text-xs tabular-nums text-zinc-400' }, String(p.rows.length)))))))))
 }
 
+export type MenuSheetProps = { open: boolean; title: string; html: string; onClose: () => void }
+
+// The phone's menus (the prototypes, the session) in the same sheet. Their content is the
+// shell's own menu HTML, and the sheet renders inside the shell's root, so its buttons reach
+// the shell's click handling like any other.
+function MenuSheet(p: MenuSheetProps & { container: HTMLElement }) {
+  return h(Drawer.Root, { open: p.open, onOpenChange: (open: boolean) => { if (!open) p.onClose() } },
+    h(Drawer.Portal, { container: p.container },
+      h(Drawer.Backdrop, { className: '[--backdrop-opacity:0.3] [--bleed:3rem] dark:[--backdrop-opacity:0.6] fixed inset-0 z-[200] min-h-dvh bg-black opacity-[calc(var(--backdrop-opacity)*(1-var(--drawer-swipe-progress)))] transition-opacity duration-[450ms] ease-[cubic-bezier(0.32,0.72,0,1)] data-swiping:duration-0 data-ending-style:opacity-0 data-starting-style:opacity-0 data-ending-style:duration-[calc(var(--drawer-swipe-strength)*400ms)] supports-[-webkit-touch-callout:none]:absolute' }),
+      h(Drawer.Viewport, { className: 'fixed inset-0 z-[200] flex items-end justify-center' },
+        h(Drawer.Popup, { className: '-mb-[3rem] w-full max-h-[calc(80vh+3rem)] overflow-y-auto overscroll-contain rounded-t-3xl bg-white pb-[calc(0.5rem+env(safe-area-inset-bottom,0px)+3rem)] pt-2 text-[13px] text-zinc-900 shadow-2xl shadow-black/20 outline-none touch-auto [transform:translateY(var(--drawer-swipe-movement-y))] transition-transform duration-[450ms] ease-[cubic-bezier(0.32,0.72,0,1)] data-swiping:select-none data-ending-style:[transform:translateY(calc(100%-3rem+2px))] data-starting-style:[transform:translateY(calc(100%-3rem+2px))] data-ending-style:duration-[calc(var(--drawer-swipe-strength)*400ms)] dark:bg-zinc-900 dark:text-zinc-100' },
+          h('div', { className: 'mx-auto mb-1 h-1 w-10 rounded-full bg-zinc-300 dark:bg-zinc-700' }),
+          h(Drawer.Content, null,
+            h('div', { className: 'flex items-center justify-between pb-1 pl-5 pr-2' },
+              h(Drawer.Title, { dir: 'auto', className: 'min-w-0 truncate text-[15px] font-semibold' }, p.title),
+              h(Drawer.Close, { 'aria-label': 'Close', className: 'grid size-9 place-items-center rounded-full text-zinc-500 active:bg-zinc-900/5 dark:active:bg-white/10' }, X)),
+            h('div', { dangerouslySetInnerHTML: { __html: p.html } }))))))
+}
+
+export function createMenuSheet(host: HTMLElement) {
+  const root = createRoot(host)
+  return (props: MenuSheetProps) => root.render(h(MenuSheet, { ...props, container: host }))
+}
+
 /** Mounts the sheet once; call the returned function with new props to open, close or refresh it. */
 export function createSheet(host: HTMLElement) {
   const root = createRoot(host)
