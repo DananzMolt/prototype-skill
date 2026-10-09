@@ -211,6 +211,33 @@ it, and a ⋯ on the variant's row offers Autoplay, All states and Compare:
 - Put `data-diff` on what a variant adds; Compare outlines it.
 - `proto add`, `pick` and `archive` keep these fields; edit `meta.ts` after `proto add`.
 
+**Say what to type and try.** When getting through a variant takes something a reviewer can't
+guess (a login, a code, a search that returns results), or it has scenarios, outside events or
+limits worth knowing, report them with `useHints` from `src/hints.ts`, once, in the variant's
+component. The page shows them in a Try it panel beside the design, where each value copies with
+a click and Fill in types them into the design's fields; `proto shoot` leaves the panel out.
+
+```
+import { useHints } from '../../hints'
+
+useHints([
+  { kind: 'value', label: 'Email', value: 'mira@arc.audio', fill: 'input[type=email]' },
+  { kind: 'value', label: '2FA code', value: () => codeNow(), fill: 'input[inputmode=numeric]', note: 'changes every 30 s' },
+  { kind: 'try', text: 'Lock the account: 5 wrong passwords', done: misses >= 5 },
+  { kind: 'switch', label: 'Scenario', options: ['Few', 'Empty', 'Busy', 'Can’t load'], value: scenario, set: setScenario },
+  { kind: 'event', label: 'A new mix arrives', run: addMix },
+  { kind: 'caveat', text: 'Audio doesn’t play in the prototype.' },
+])
+```
+
+- Report what applies now, from the variant's own state: the values for the step on screen, and
+  `done` once a thing to try has happened. The panel follows along.
+- `fill` is a selector inside the variant; a function `value` is read every second.
+- Made-up demo data only, never real credentials: the page is served on the tailnet.
+- A scenario switch is for the same design with other data (empty, busy, an error, a first
+  visit); a different design is a variant.
+- Vue: `useHints(() => [...])` in `<script setup>`. A variant with nothing to say makes no call.
+
 ## 5. Look at it, then iterate
 
 ```
@@ -348,6 +375,6 @@ menu in the page.
 - **A variant shows a red error box:** that variant threw. Fix the file; it re-renders.
 - **`proto shoot` prints `slow …`:** a shot took over 3 s, and the line says which step took
   the time. Pass the line on to the user.
-- **Don't edit** the app's `shell/`, `src/main.ts`, `src/registry.ts` or `src/mount.*`. If the
+- **Don't edit** the app's `shell/`, `src/main.ts`, `src/registry.ts`, `src/mount.*` or `src/hints.ts`. If the
   shell itself misbehaves, say so; the template is `${CLAUDE_SKILL_DIR}/app/` (replaced on
   every plugin update, so a fix belongs upstream).

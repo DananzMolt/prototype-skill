@@ -10,6 +10,7 @@
 
 import { ic, esc, ON, TAB_ON, TAB_OFF, IB, SEP, pulse, pop, item, ago, clock } from './ui'
 import { dock, edge, smooth, runDock, restoreEdgeLabels, stageHover, canHover, installPointerTracking, fadeOut } from './motion'
+import { hints, fillField, type Hint } from './hints'
 
 export type Variant = { id: string; name: string; file: string; load: () => Promise<unknown> }
 /** Something behind clicks in a prototype's variants (a menu, a drawer, a dialog), reached by
@@ -211,8 +212,9 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       <header data-bar class="relative z-30 flex h-12 shrink-0 items-center gap-1 border-b border-black/[.07] px-2 dark:border-white/10"></header>
       <div data-tabs></div>
       <div data-zone>
-        <div data-layers class="absolute inset-0"></div>
+        <div data-layers class="absolute inset-0" style="right:var(--hw,0px)"></div>
         <div data-overlay></div>
+        <aside data-hints></aside>
       </div>
     </div>
     <div data-drawer></div>
@@ -225,6 +227,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const zone = root.querySelector<HTMLElement>('[data-zone]')!
   const layers = root.querySelector<HTMLElement>('[data-layers]')!
   const overlay = root.querySelector<HTMLElement>('[data-overlay]')!
+  const hintBox = root.querySelector<HTMLElement>('[data-hints]')!
 
   // ---------- layers ----------
   let layer: Layer | null = null
@@ -696,13 +699,13 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const edgeBtn = (side: 'prev' | 'next') => {
       const d = side === 'prev' ? -1 : 1, t = vs[(at + d + vs.length) % vs.length]
       const k = `${st.focus ? 'focus' : 'main'}-${side}`, e = smooth(edge.t[k] || 0), open = !!edge.hover[k]
-      return `<button data-edge="${k}" data-act="step:${d}" aria-label="${d < 0 ? 'Previous' : 'Next'} variant: ${t.id} ${esc(t.name)}" class="absolute top-1/2 z-10 -mt-6 hidden h-12 items-center rounded-full bg-white/90 px-3 text-zinc-900 shadow-lg shadow-black/10 ring-1 ring-black/10 backdrop-blur [@media(hover:hover)]:flex dark:bg-zinc-900/90 dark:text-white dark:ring-white/15 ${d < 0 ? 'left-3' : 'right-3 flex-row-reverse'}" style="opacity:${e};pointer-events:${e > 0.3 ? 'auto' : 'none'}">${ic(d < 0 ? 'left' : 'right', 'size-5')}<span data-edge-label class="overflow-hidden whitespace-nowrap text-[13px]" style="width:${open ? edge.w[k] || 0 : 0}px;opacity:${open ? 1 : 0};margin-${d < 0 ? 'left' : 'right'}:${open ? 8 : 0}px;transition:width .32s cubic-bezier(.22,1,.36,1),opacity .2s,margin .32s cubic-bezier(.22,1,.36,1)"><span class="inline-block"><b>${t.id}</b> · ${esc(t.name)}</span></span></button>`
+      return `<button data-edge="${k}" data-act="step:${d}" aria-label="${d < 0 ? 'Previous' : 'Next'} variant: ${t.id} ${esc(t.name)}" class="absolute top-1/2 z-10 -mt-6 hidden h-12 items-center rounded-full bg-white/90 px-3 text-zinc-900 shadow-lg shadow-black/10 ring-1 ring-black/10 backdrop-blur [@media(hover:hover)]:flex dark:bg-zinc-900/90 dark:text-white dark:ring-white/15 ${d < 0 ? 'left-3' : 'right-[calc(var(--hw,0px)+0.75rem)] flex-row-reverse'}" style="opacity:${e};pointer-events:${e > 0.3 ? 'auto' : 'none'}">${ic(d < 0 ? 'left' : 'right', 'size-5')}<span data-edge-label class="overflow-hidden whitespace-nowrap text-[13px]" style="width:${open ? edge.w[k] || 0 : 0}px;opacity:${open ? 1 : 0};margin-${d < 0 ? 'left' : 'right'}:${open ? 8 : 0}px;transition:width .32s cubic-bezier(.22,1,.36,1),opacity .2s,margin .32s cubic-bezier(.22,1,.36,1)"><span class="inline-block"><b>${t.id}</b> · ${esc(t.name)}</span></span></button>`
     }
     const dockBtn = 'grid size-9 shrink-0 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white'
     const dockSep = '<span class="mx-1 h-5 w-px shrink-0 bg-white/15"></span>'
     overlay.innerHTML = view !== 'variant' || !p ? '' : `
       ${vs.length > 1 ? edgeBtn('prev') + edgeBtn('next') : ''}
-      ${!st.focus ? `<button data-act="focus" data-focus-btn title="Focus mode · F" class="absolute right-4 top-3 z-10 hidden h-9 [@media(hover:hover)]:inline-flex items-center gap-1.5 rounded-full bg-zinc-900/80 px-3 text-xs font-medium text-white shadow-lg backdrop-blur transition-opacity duration-200 focus-visible:!opacity-100" style="opacity:${stageHover.on ? 1 : 0}">${ic('grow', 'size-3.5')}Focus</button>` : `
+      ${!st.focus ? `<button data-act="focus" data-focus-btn title="Focus mode · F" class="absolute right-[calc(var(--hw,0px)+1rem)] top-3 z-10 hidden h-9 [@media(hover:hover)]:inline-flex items-center gap-1.5 rounded-full bg-zinc-900/80 px-3 text-xs font-medium text-white shadow-lg backdrop-blur transition-opacity duration-200 focus-visible:!opacity-100" style="opacity:${stageHover.on ? 1 : 0}">${ic('grow', 'size-3.5')}Focus</button>` : `
       ${st.open === 'fproto' ? `<div data-pop class="fixed bottom-[76px] left-1/2 z-20 w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-2xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-zinc-900">${protoMenu}</div>` : ''}
       <div class="pointer-events-none fixed inset-x-0 bottom-0 z-10 flex justify-center pb-[env(safe-area-inset-bottom)]">
         <div data-dock data-locked="${st.open === 'fproto' ? 1 : 0}" class="pointer-events-auto relative overflow-hidden rounded-full shadow-xl shadow-black/20 ring-1 ring-white/10 backdrop-blur" style="width:72px;height:6px;margin-bottom:4px;background-color:rgb(24 24 27/.35)">
@@ -729,6 +732,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     })
     document.title = [where, v && `${v.id} · ${v.name}`, p?.title, session.name].filter(Boolean).join(' – ')
     paintIcon()
+    paintHints()
   }
 
   // ---------- sidebar ----------
@@ -1000,6 +1004,91 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   grip.addEventListener('keydown', e => {
     const d = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0
     if (d) { e.preventDefault(); setSideW(st.sideW + d) }
+  })
+
+  // ---------- Try it: what the design on the stage says a reviewer needs ----------
+  // Docked at the stage's right edge on a wide screen, so the design narrows instead of being
+  // covered; a sheet over the design on a narrow one; closed, a tab on the edge. Shown for one
+  // variant on the stage (not lobbies or tools), and never in proto shoot (?hints=0), so shots
+  // keep the design at its full width.
+  const HINTS_W = 264
+  const wideMq = matchMedia('(min-width: 1024px)')
+  let hintsOpen = wideMq.matches && localStorage.getItem('proto-hints') !== '0'
+  let hintSaid = '', hintCopied = -1, hintTimer = 0, hintsDocked = false
+  const hintHost = () => st.place.view === 'variant' && !st.place.tool ? layer?.el.querySelector<HTMLElement>('[data-mount]') ?? null : null
+  const hintList = () => q.get('hints') === '0' ? [] : hints.of(hintHost())
+  const valueOf = (h: Extract<Hint, { kind: 'value' }>) => { try { return String(typeof h.value === 'function' ? h.value() : h.value) } catch { return '' } }
+  const flash = () => { clearTimeout(hintTimer); hintTimer = window.setTimeout(() => { hintSaid = ''; hintCopied = -1; paintHints() }, 1400) }
+
+  function paintHints() {
+    const list = hintList()
+    const docked = !!list.length && hintsOpen && wideMq.matches
+    zone.style.setProperty('--hw', docked ? `${HINTS_W}px` : '0px')
+    if (docked !== hintsDocked) { hintsDocked = docked; requestAnimationFrame(fit) }
+    if (!list.length) { hintBox.innerHTML = ''; return }
+    const count = list.filter(h => h.kind !== 'caveat').length
+    if (!hintsOpen) {
+      hintBox.innerHTML = `<button data-hint="open" title="What to type and try in this design" class="absolute bottom-4 right-0 z-20 flex h-9 items-center gap-1.5 rounded-l-lg bg-white/95 pl-2.5 pr-3 text-xs font-medium text-zinc-900 shadow-lg shadow-black/10 ring-1 ring-black/10 backdrop-blur hover:bg-white dark:bg-zinc-900/95 dark:text-zinc-100 dark:ring-white/15 dark:hover:bg-zinc-900">${ic('key', 'size-3.5 text-amber-500')}Try it<span class="tabular-nums text-zinc-400">${count}</span></button>`
+      return
+    }
+    const all = list.map((h, i) => ({ h, i }))
+    const pick = <K extends Hint['kind']>(k: K) => all.filter(x => x.h.kind === k) as { h: Extract<Hint, { kind: K }>; i: number }[]
+    const values = pick('value'), tries = pick('try'), switches = pick('switch'), events = pick('event'), caveats = pick('caveat')
+    const sec = (name: string, body: string, meta = '') => `<section class="border-b border-black/[.05] p-1 last:border-b-0 dark:border-white/[.07]"><h3 class="flex px-2 pb-0.5 pt-1 text-[11px] font-medium text-zinc-400">${esc(name)}<span class="ml-auto font-normal tabular-nums">${meta}</span></h3>${body}</section>`
+    const value = ({ h, i }: { h: Extract<Hint, { kind: 'value' }>; i: number }) => `<button data-hint="copy:${i}" title="Copy ${esc(h.label.toLowerCase())}" class="group/h flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-zinc-900/[.04] dark:hover:bg-white/[.06]">
+        <span class="w-[4.5rem] shrink-0 pt-px text-[11px] leading-4 text-zinc-500">${esc(h.label)}</span>
+        <span class="min-w-0 flex-1"><span ${typeof h.value === 'function' ? `data-live="${i}" ` : ''}class="block break-all font-mono text-[12px] leading-[18px] text-zinc-900 dark:text-zinc-100">${esc(valueOf(h))}</span>${h.note ? `<span class="block text-[11px] leading-4 text-zinc-400">${esc(h.note)}</span>` : ''}</span>
+        <span class="grid size-5 shrink-0 place-items-center ${hintCopied === i ? 'text-emerald-500' : 'text-zinc-400 opacity-0 group-hover/h:opacity-100 [@media(hover:none)]:opacity-100'}">${ic(hintCopied === i ? 'check' : 'copy', 'size-3.5')}</span></button>`
+    const tryRow = ({ h }: { h: Extract<Hint, { kind: 'try' }> }) => `<div class="flex items-start gap-2 px-2 py-1.5"><span class="mt-px grid size-4 shrink-0 place-items-center rounded-full ${h.done ? 'bg-emerald-500 text-white' : 'ring-1 ring-inset ring-zinc-300 dark:ring-zinc-600'}">${h.done ? ic('check', 'size-3') : ''}</span><span class="text-[12.5px] leading-[18px] ${h.done ? 'text-zinc-400 line-through decoration-zinc-300 dark:decoration-zinc-600' : ''}">${esc(h.text)}</span></div>`
+    const switchRow = ({ h, i }: { h: Extract<Hint, { kind: 'switch' }>; i: number }) => `<div class="flex flex-wrap gap-1 px-2 py-1">${h.options.map((o, j) => `<button data-hint="switch:${i}:${j}" aria-pressed="${o === h.value}" class="h-7 rounded-md px-2.5 text-xs ${o === h.value ? 'bg-zinc-900 font-medium text-white dark:bg-white dark:text-zinc-900' : 'bg-zinc-900/[.04] text-zinc-600 hover:bg-zinc-900/[.08] dark:bg-white/[.06] dark:text-zinc-300 dark:hover:bg-white/10'}">${esc(o)}</button>`).join('')}</div>`
+    const eventRow = ({ h, i }: { h: Extract<Hint, { kind: 'event' }>; i: number }) => `<button data-hint="event:${i}" class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-zinc-900/[.04] dark:hover:bg-white/[.06]">${ic('bolt', 'size-3.5 text-amber-500')}${esc(h.label)}</button>`
+    const canFill = values.some(x => x.h.fill)
+    const wide = wideMq.matches
+    hintBox.innerHTML = `<div role="complementary" aria-label="Try it" class="absolute inset-y-0 right-0 z-20 flex flex-col bg-white text-[13px] text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 ${wide ? 'border-l border-black/[.07] dark:border-white/10' : 'w-[min(18rem,88%)] shadow-2xl shadow-black/30'}" ${wide ? `style="width:${HINTS_W}px"` : ''}>
+      <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-black/[.07] pl-3 pr-1 dark:border-white/10">
+        ${ic('key', 'size-3.5 text-amber-500')}<span class="text-xs font-medium">Try it</span>
+        <span class="ml-auto"></span>
+        ${canFill ? `<button data-hint="fill" title="Type the values into this design's fields" class="inline-flex h-7 items-center gap-1.5 rounded-md bg-zinc-900 px-2.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200">${ic(hintSaid === 'Filled' ? 'check' : 'fill', 'size-3.5')}${hintSaid || 'Fill in'}</button>` : ''}
+        <button data-hint="close" class="${IB} h-7 min-w-7 px-1" aria-label="Close Try it" title="Close">${ic(wide ? 'right' : 'x', 'size-3.5')}</button>
+      </div>
+      <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        ${values.length ? sec('To type', values.map(value).join('')) : ''}
+        ${tries.length ? sec('Things to try', tries.map(tryRow).join(''), `${tries.filter(x => x.h.done).length}/${tries.length}`) : ''}
+        ${switches.map(x => sec(x.h.label, switchRow(x))).join('')}
+        ${events.length ? sec('Make it happen', events.map(eventRow).join('')) : ''}
+      </div>
+      ${caveats.length ? `<div class="shrink-0 border-t border-black/[.06] px-3 py-2 text-[11px] leading-4 text-zinc-500 dark:border-white/10">${caveats.map(x => `<p>${esc(x.h.text)}</p>`).join('')}</div>` : ''}
+    </div>`
+  }
+  hints.subscribe(paintHints)
+  wideMq.addEventListener('change', () => { hintsOpen = wideMq.matches && localStorage.getItem('proto-hints') !== '0'; paintHints() })
+  // A live value (a code that changes every 30 seconds) is re-read every second, in place.
+  setInterval(() => {
+    const list = hintList()
+    for (const el of hintBox.querySelectorAll<HTMLElement>('[data-live]')) { const h = list[Number(el.dataset.live)]; if (h?.kind === 'value') el.textContent = valueOf(h) }
+  }, 1000)
+  hintBox.addEventListener('click', e => {
+    const b = (e.target as Element).closest<HTMLElement>('[data-hint]')
+    if (!b) return
+    const [what, a, c] = b.dataset.hint!.split(':'), list = hintList(), h = list[Number(a)]
+    try {
+      if (what === 'open' || what === 'close') { hintsOpen = what === 'open'; if (wideMq.matches) localStorage.setItem('proto-hints', hintsOpen ? '1' : '0') }
+      else if (what === 'copy' && h?.kind === 'value') { navigator.clipboard?.writeText(valueOf(h)); hintCopied = Number(a); flash() }
+      else if (what === 'fill') {
+        const host = hintHost()
+        const filled = list.filter(x => {
+          if (x.kind !== 'value' || !x.fill) return false
+          let el: Element | null = null
+          try { el = host?.querySelector(x.fill) ?? null } catch { /* a bad selector: nothing to fill */ }
+          return !!el && fillField(el, valueOf(x))
+        }).length
+        hintSaid = filled ? 'Filled' : 'No field here'
+        flash()
+      }
+      else if (what === 'switch' && h?.kind === 'switch') h.set(h.options[Number(c)])
+      else if (what === 'event' && h?.kind === 'event') h.run()
+    } catch (err) { console.error('[prototype] a hint failed:', err) }
+    paintHints()
   })
 
   // ---------- theme, status, server ----------

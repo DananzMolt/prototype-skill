@@ -187,6 +187,7 @@ try {
     await send('Emulation.setDeviceMetricsOverride', { width: phone ? 900 : WIDTH, height: phone ? 1100 : STAGE + 48, deviceScaleFactor: 1, mobile: false }, sessionId)
     const url = new URL(rawUrl)
     url.searchParams.set('theme', 'light')
+    url.searchParams.set('hints', '0')
     if (phone) url.searchParams.set('focus', '1')
     url.hash = '/' + v.route
     await send('Page.navigate', { url: url.href }, sessionId)

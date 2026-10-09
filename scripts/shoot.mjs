@@ -41,6 +41,7 @@ const SIZES = [
 const base = new URL(rawUrl)
 base.hash = ''
 base.searchParams.set('theme', flags.theme === 'dark' ? 'dark' : 'light') // headless Chrome may report a dark system theme
+base.searchParams.set('hints', '0') // the Try it panel would narrow the design
 if (flags.focus) base.searchParams.set('focus', '1')
 const suffix = [flags.focus && 'focus', flags.theme === 'dark' && 'dark', clicks.length && 'clicked'].filter(Boolean).map(s => `-${s}`).join('')
 const fileOf = route => route.replace(/^\/+|\/+$/g, '').replace(/\//g, '-') || 'session'

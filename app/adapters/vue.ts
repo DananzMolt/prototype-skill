@@ -1,6 +1,7 @@
 // Mounts a Vue variant into a host element. A render error shows in place of the variant
 // instead of taking down the shell, and clears on the next hot update.
 import { createApp, h, shallowRef, type Component } from 'vue'
+import { HintHost } from './hints'
 
 const errors = new Set<{ value: unknown }>()
 if (import.meta.hot) import.meta.hot.on('vite:afterUpdate', () => errors.forEach(e => { e.value = null }))
@@ -14,6 +15,7 @@ export function mount(el: HTMLElement, Variant: Component) {
       : h(Variant),
   })
   app.config.errorHandler = err => { error.value = err }
+  app.provide(HintHost, el)
   app.mount(el)
   return () => { errors.delete(error); app.unmount() }
 }

@@ -93,9 +93,13 @@ writeFileSync(heroMeta, metaSrc.slice(0, at) + ' ' + JSON.stringify({
     { id: 'gone', name: 'Missing', click: ['[data-shoot=missing]'] },
   ],
 }, null, 2) + '\n')
+// The variant also reports hints for the Try it panel, through the app's own src/hints.ts.
+if (!existsSync(join(app, 'src', 'hints.ts'))) fail('the app has no src/hints.ts')
 writeFileSync(join(app, 'src', 'protos', 'hero', 'A.tsx'), `import { useState } from 'react'
+import { useHints } from '../../hints'
 export default function A() {
   const [open, setOpen] = useState(false)
+  useHints([{ kind: 'value', label: 'Code', value: 'SAVE20' }, { kind: 'try', text: 'Open the panel', done: open }])
   return <div className="h-full w-[4321px] p-8"><button data-shoot="open" onClick={() => setOpen(true)}>Open</button>{open && <p>Panel</p>}</div>
 }
 `)
