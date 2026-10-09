@@ -34,7 +34,7 @@ export function Layer() {
   const editing = m.kind === 'compose' || m.kind === 'tag' ? m : null
   const editedItem = editing?.id ? s.items.find(x => x.id === editing.id) : undefined
 
-  const { hover, confirm } = usePick(picking && !!s.place, m.kind === 'compose' && !!s.place, {
+  const { hover, confirm, up } = usePick(picking && !!s.place, m.kind === 'compose' && !!s.place, {
     onPick: t => (m.kind === 'tag' ? act.tagDone(t) : act.begin(t)),
     onCancel: () => (m.kind === 'tag' ? act.tagDone(null) : act.stop()),
     onGuard: act.guard,
@@ -64,7 +64,7 @@ export function Layer() {
   const opened = !editing && s.active ? rows.find(r => r.item.id === s.active && r.here) : undefined
   return (
     <>
-      <HoverBox hover={hover} verb={verb} onConfirm={confirm} />
+      <HoverBox hover={hover} verb={verb} onConfirm={confirm} onUp={up} />
       <Pins items={here.map(r => ({ item: r.item, done: r.state === 'done' }))} boxes={boxes} active={s.active} onOpen={act.open} />
       {editing && (
         <Composer key={editing.id ?? editing.target.selector} target={editing.target} n={editedItem?.n ?? nextN} place={boxes[editing.id ?? '__new'] ?? null}

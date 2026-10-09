@@ -64,7 +64,7 @@ export function useBoxes(list: { id: string; t: Target }[]) {
   return boxes
 }
 
-export type Inspect = { box: Box; label: string; touch: boolean } | null
+export type Inspect = { box: Box; label: string; touch: boolean; parent: string | null } | null
 
 /**
  * While commenting, the design is only looked at, never used: no press, tap or key reaches it.
@@ -75,17 +75,37 @@ export type Inspect = { box: Box; label: string; touch: boolean } | null
 export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Target) => void; onCancel: () => void; onGuard: (t: Target) => void }) {
   const { host } = useCtx()
   const [hover, setHover] = useState<Inspect>(null)
+  const hoverRef = useRef<Inspect>(null)
+  hoverRef.current = hover
   const cb = useRef(handlers)
   cb.current = handlers
   const cur = useRef<HTMLElement | null>(null)
+  // Set once the outline was moved up to a parent: a click then means that parent, not what is under the pointer.
+  const raised = useRef(false)
   const act = useRef<(el: HTMLElement) => void>(() => {})
+  const raise = useRef<() => void>(() => {})
   useEffect(() => {
     cur.current = null
     setHover(null)
+    raised.current = false
     if (!on && !guard) return
     const inDesign = (t: EventTarget | null) => { const m = host.mount(); return m && t instanceof HTMLElement && m.contains(t) ? t : null }
     const part = (t: EventTarget | null) => { const el = inDesign(t); return el && el !== host.mount() ? el : null }
-    const show = (el: HTMLElement | null, touch: boolean) => { cur.current = el; setHover(el ? { box: rel(el, host.layer), label: labelOf(el), touch } : null) }
+    const parentOf = (el: HTMLElement) => { const m = host.mount(), p = el.parentElement; return m && p && p !== m && m.contains(p) ? p : null }
+    const show = (el: HTMLElement | null, touch: boolean) => {
+      cur.current = el
+      raised.current = false
+      const up = el && parentOf(el)
+      setHover(el ? { box: rel(el, host.layer), label: labelOf(el), touch, parent: up ? labelOf(up) : null } : null)
+    }
+    // Skips to the parent of what is outlined, as often as there is one.
+    raise.current = () => {
+      const up = cur.current && parentOf(cur.current)
+      if (!up) return
+      const touch = !!hoverRef.current?.touch
+      show(up, touch)
+      raised.current = true
+    }
     act.current = el => {
       show(null, false)
       const t = describe(host.mount()!, el)
@@ -97,6 +117,7 @@ export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Tar
     const settle = () => { clearTimeout(timer); pending = undefined }
     const move = (e: PointerEvent) => {
       if (e.pointerType !== 'mouse') return
+      if ((e.target as Element).closest?.('[data-inspect-ui]')) return settle()
       const el = part(e.target)
       if (el === cur.current) return settle()
       if (el === pending) return
@@ -128,10 +149,11 @@ export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Tar
       e.preventDefault(); e.stopPropagation()
       settle()
       const el = part(e.target)
-      if (el) act.current(el)
+      if (el) act.current(raised.current && cur.current?.contains(el) ? cur.current : el)
     }
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && on) { e.preventDefault(); e.stopPropagation(); cb.current.onCancel() }
+      else if (e.key === 'ArrowUp' && cur.current && !(e.target as Element).closest?.('[contenteditable], input, textarea')) { e.preventDefault(); e.stopPropagation(); raise.current() }
       // Enter or Space on something focused in the design would use it too.
       else if ((e.key === 'Enter' || e.key === ' ') && inDesign(e.target)) { e.preventDefault(); e.stopPropagation() }
     }
@@ -158,18 +180,25 @@ export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Tar
   }, [on, guard, host])
   /** Acts on what a finger inspected, from the outline's own button. */
   const confirm = () => { if (cur.current) act.current(cur.current) }
-  return { hover, confirm }
+  return { hover, confirm, up: () => raise.current() }
 }
 
-/** The outline on what is being inspected. After a tap it says what a second tap does, and is a button for it too. */
-export function HoverBox({ hover, verb, onConfirm }: { hover: Inspect; verb: string; onConfirm: () => void }) {
+/**
+ * The outline on what is being inspected, with a button to skip to its parent. A finger gets
+ * two icon buttons (parent, comment); a pointer gets the name, and the parent named beside it.
+ */
+export function HoverBox({ hover, verb, onConfirm, onUp }: { hover: Inspect; verb: string; onConfirm: () => void; onUp: () => void }) {
   return (
     <Glide item={hover} pad={3} className={`rounded-md border-2 border-proto-primary-ring ${hover?.touch ? 'bg-proto-primary/[.10]' : 'bg-proto-primary/[.06]'}`}>
       {h => h.touch
-        ? <button onClick={onConfirm} onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); onConfirm() }} className={`absolute left-0 inline-flex h-8 max-w-[calc(100vw-2rem)] items-center gap-1.5 whitespace-nowrap rounded-lg bg-proto-primary pl-2 pr-2.5 text-xs font-medium text-proto-primary-fg shadow-lg ${hover ? 'pointer-events-auto' : ''} ${h.box.y < 44 ? 'top-full mt-1.5' : '-top-10'}`}>
-            <span className="max-w-40 truncate opacity-80">{h.label}</span><span className="h-3.5 w-px bg-white/30" /><Icon name="comment" className="size-3.5" />{verb}<span className="opacity-70">· or tap again</span>
-          </button>
-        : <span className="absolute -top-6 left-0 whitespace-nowrap rounded-md bg-proto-primary px-1.5 py-0.5 text-[11px] font-medium text-proto-primary-fg shadow">{verb === 'Comment' ? '' : `${verb} · `}{h.label}</span>}
+        ? <div data-inspect-ui className={`absolute left-0 flex h-9 items-center whitespace-nowrap rounded-lg bg-proto-primary text-xs font-medium text-proto-primary-fg shadow-lg ${hover ? 'pointer-events-auto' : ''} ${h.box.y < 48 ? 'top-full mt-1.5' : '-top-11'}`}>
+            {h.parent && <><button aria-label={`Select the parent, ${h.parent}`} onClick={onUp} onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); onUp() }} className="grid size-9 place-items-center rounded-l-lg active:bg-white/15"><Icon name="up" className="size-4" /></button><span className="h-4 w-px bg-white/30" /></>}
+            <button onClick={onConfirm} onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); onConfirm() }} className={`inline-flex h-9 items-center gap-1.5 pl-2.5 pr-3 active:bg-white/15 ${h.parent ? 'rounded-r-lg' : 'rounded-lg'}`}><Icon name="comment" className="size-3.5" />{verb}</button>
+          </div>
+        : <span data-inspect-ui className={`absolute -top-7 left-0 flex h-6 items-stretch whitespace-nowrap rounded-md bg-proto-primary text-[11px] font-medium text-proto-primary-fg shadow ${hover ? 'pointer-events-auto' : ''}`}>
+            <span className="inline-flex items-center px-1.5">{verb === 'Comment' ? '' : `${verb} · `}{h.label}</span>
+            {h.parent && <button onClick={onUp} title="Select the parent · ↑" className="inline-flex items-center gap-1 rounded-r-md border-l border-white/30 px-1.5 hover:bg-white/15"><Icon name="up" className="size-3" /><span className="max-w-32 truncate">{h.parent}</span></button>}
+          </span>}
     </Glide>
   )
 }
