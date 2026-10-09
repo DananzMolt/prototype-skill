@@ -30,6 +30,8 @@ const PATHS: Record<string, string> = {
   copy: 'M9 9h10v10H9zM5 15V5h10',
   fill: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
   bolt: 'M13 2 4 14h7l-1 8 9-12h-7z',
+  minus: 'M6 12h12',
+  plus: 'M12 6v12M6 12h12',
 }
 
 export const ic = (name: string, cls = 'size-4') =>
