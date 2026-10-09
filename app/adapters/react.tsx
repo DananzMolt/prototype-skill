@@ -2,6 +2,7 @@
 // variant from taking down the shell; Fast Refresh retries it after the next edit.
 import { Component, StrictMode, type ComponentType, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { HintHost } from './hints'
 
 class Boundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null }
@@ -16,6 +17,6 @@ class Boundary extends Component<{ children: ReactNode }, { error: Error | null 
 
 export function mount(el: HTMLElement, Variant: ComponentType) {
   const root = createRoot(el)
-  root.render(<StrictMode><Boundary><Variant /></Boundary></StrictMode>)
+  root.render(<StrictMode><HintHost.Provider value={el}><Boundary><Variant /></Boundary></HintHost.Provider></StrictMode>)
   return () => root.unmount()
 }

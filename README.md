@@ -102,6 +102,10 @@ Menus, drawers and steps inside a variant are listed under it in the sidebar, ea
   <img alt="Two variants compared in the same state, with the states listed in the sidebar" src="docs/images/states-light.png">
 </picture>
 
+### Try it, beside the design
+
+A variant can say what a reviewer needs to get through it, and the page shows it in a panel at the stage's right edge: values to type (a demo login, a 2FA code that changes every 30 seconds), each copied with a click or typed in with Fill in, things to try that tick themselves off, scenario switches (empty, busy, an error), events from outside (a message arrives, a payment fails) and what the prototype doesn't do. The design narrows beside it instead of being covered; on a phone it opens over the design, and closed it is a tab on the edge. Screenshots leave it out.
+
 ### Focus mode
 
 Press `F` and the chrome disappears. A small dock stays at the bottom and grows as your pointer gets close; edge arrows appear near the sides.
@@ -159,7 +163,7 @@ A design's code loads the first time it's shown, so picked, archived and unopene
 | `scripts/shoot.mjs` | Desktop and phone screenshots of the stage (no sidebar or bars) through headless Chrome, and with `--ref` a variant beside and over a screenshot of the real screen |
 | `scripts/snap.mjs` | Static HTML snapshots of variants, for sharing in a Claude Doc |
 | `scripts/chrome.mjs` | Finds Chrome, Chromium or Edge for the two above |
-| `app/` | The template each session app is copied from (Vite, Tailwind, the shell, React and Vue adapters) |
+| `app/` | The template each session app is copied from (Vite, Tailwind, the shell, React and Vue adapters, and `useHints` for the Try it panel) |
 | `.claude-plugin/` | Plugin and marketplace manifests |
 
 ## License

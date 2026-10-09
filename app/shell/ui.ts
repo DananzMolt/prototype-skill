@@ -26,6 +26,10 @@ const PATHS: Record<string, string> = {
   diff: 'M7 4v16M17 4v16M4 8h6M14 16h6',
   pin: 'M9 4h6l-1 5 3 3v2H7v-2l3-3zM12 14v6',
   layers: 'M12 3 3 8l9 5 9-5zM3 13l9 5 9-5',
+  key: 'M7.5 10a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM11.4 11.6 21 2M15.5 7.5l2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4',
+  copy: 'M9 9h10v10H9zM5 15V5h10',
+  fill: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+  bolt: 'M13 2 4 14h7l-1 8 9-12h-7z',
 }
 
 export const ic = (name: string, cls = 'size-4') =>
