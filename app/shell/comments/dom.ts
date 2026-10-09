@@ -19,6 +19,18 @@ export function rel(el: Element, host: Element): Box {
   return { x: r.left - h.left, y: r.top - h.top, w: r.width, h: r.height }
 }
 
+/**
+ * `el`'s box (see `rel`) cut to the part of the design that is on screen: a design scrolls inside
+ * its mount (a phone's screen), so an element taller than the screen, or half scrolled away,
+ * is only drawn where it can be seen. Null when none of it is.
+ */
+export function seen(el: Element, mount: Element, host: Element): Box | null {
+  const b = rel(el, host), m = rel(mount, host)
+  const x = Math.max(b.x, m.x), y = Math.max(b.y, m.y)
+  const w = Math.min(b.x + b.w, m.x + m.w) - x, h = Math.min(b.y + b.h, m.y + m.h) - y
+  return w > 0 && h > 0 ? { x, y, w, h } : null
+}
+
 /** A readable name: its own (data-shoot, aria-label, alt), else what it says, else its tag, and where it sits. */
 export function labelOf(el: HTMLElement) {
   const shoot = el.dataset.shoot
