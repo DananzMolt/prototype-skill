@@ -1270,7 +1270,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const p = cur()
     const here = st.place.view === 'variant' ? st.place : null
     switch (name) {
-      case 'comment': return arg === 'tap' ? comments.tap() : comments.act.toggle()
+      case 'comment': return arg === 'tap' ? comments.tap() : toggleComment()
       // A state leaf: that variant in that state. Comparing keeps comparing.
       case 'pvs': {
         const keep = here?.tool === 'compare' && here.proto === arg && here.variant === arg2
@@ -1379,7 +1379,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       return
     }
     if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && st.place.view === 'variant') { e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1) }
-    else if (e.key === 'c' && commentHost()) { e.preventDefault(); comments.act.toggle() }
+    else if (e.key === 'c' && commentHost()) { e.preventDefault(); toggleComment() }
     else if (e.key === 'f' && st.place.view === 'variant') act(st.focus ? 'unfocus' : 'focus', '', '')
     else if (e.key === 'w' && workOf()) act('work', 'go', '')
   })
@@ -1502,6 +1502,15 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   comments.mountRail(cbody)
 
   function paintHints() { syncComments(); paintPanel(); syncSpot() }
+  // Starting to comment opens the Comments tab beside the design, where the new one lands. Only
+  // where the panel docks: narrower, it would cover what you're about to click on.
+  function toggleComment() {
+    comments.act.toggle()
+    if (!comments.counts().picking || !railOn() || !wideMq.matches) return
+    tab = 'comments'
+    if (!hintsOpen) { hintsOpen = true; localStorage.setItem('proto-hints', '1') }
+    paintHints()
+  }
   function paintPanel() {
     const list = hintList()
     const tabs: ('comments' | 'try')[] = [...(railOn() ? ['comments' as const] : []), ...(list.length ? ['try' as const] : [])]
