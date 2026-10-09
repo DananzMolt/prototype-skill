@@ -1,6 +1,6 @@
-// The session shell: breadcrumbs whose names open lobbies and whose chevrons jump, a sidebar
-// tree (a prototype built from another one's variant sits under that variant) topped by the
-// variant being worked on, variant tabs, edge arrows, focus mode with a growing dock, and a
+// The session shell: a switcher whose dropdown is the session in columns (a prototype built from
+// another one's variant comes after that variant), a sidebar with the same columns stacked, the
+// variant your requests change on top, edge arrows, focus mode with a growing dock, and a
 // crossfade between designs.
 //
 // One rule holds it together: the chrome re-renders freely, the designs never do. Each
@@ -8,8 +8,8 @@
 // mounted once; moving somewhere builds a new layer under the old one and fades the old
 // one out. Live edits reach the mounted components through the framework's own HMR.
 
-import { ic, esc, bd, ON, TAB_ON, TAB_OFF, IB, SEP, pulse, pop, item, ago, clock } from './ui'
-import { dock, edge, smooth, runDock, restoreEdgeLabels, stageHover, canHover, installPointerTracking, fadeOut } from './motion'
+import { ic, esc, bd, ON, TAB_ON, TAB_OFF, IB, SEP, pulse, pop, ago, clock } from './ui'
+import { dock, edge, smooth, runDock, restoreEdgeLabels, stageHover, installPointerTracking, fadeOut } from './motion'
 import { hints, fillField, type Hint } from './hints'
 import { createSheet, createMenuSheet } from './sheet'
 import { createSpotlight, showable, showIcon, whereIs } from './spotlight'
@@ -64,7 +64,7 @@ const RANGE = 'h-11 min-w-0 flex-1 cursor-pointer appearance-none bg-transparent
   + '[&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-(--rest) [&::-moz-range-progress]:h-1.5 [&::-moz-range-progress]:rounded-full [&::-moz-range-progress]:bg-(--fill) '
   + '[&::-moz-range-thumb]:size-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-[0_1px_4px_rgba(0,0,0,.25),0_0_0_1px_rgba(0,0,0,.08)]'
 // The sidebar's width: dragged between these, double-click resets it.
-const SIDE_W = 288, SIDE_MIN = 200, SIDE_MAX = 480
+const SIDE_W = 320, SIDE_MIN = 260, SIDE_MAX = 480
 const INTERACTIVE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="slider"], [role="listbox"], [role="menu"]'
 const TOOLS: Record<Tool, { name: string; icon: string; hint: string }> = {
   play: { name: 'Autoplay', icon: 'play', hint: 'Clicks through every state for you' },
@@ -130,7 +130,6 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     sheet: false,
     // The phone's bar opens its menus as sheets: the prototypes, or the session.
     menu: '' as '' | 'protos' | 'session',
-    tree: new Map<string, boolean>(),
     // On a phone the grid's phone cards open at half size; Fit leaves them tiny there.
     scale: matchMedia('(max-width: 639px)').matches ? 50 : 0,
     stack: q.has('stack') ? q.get('stack') !== '0' : localStorage.getItem('proto-lobby') === 'stack',
@@ -143,12 +142,13 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     status: null as Status | null,
     vs: new Map<string, string>(),
     playing: '' as string,
-    // The working variant's card: which of its parts are open, the others hidden, and the
-    // move Claude just made (offered back for a few seconds).
-    secs: new Set<string>(),
-    only: localStorage.getItem(`proto-only-${opts.session.id}`) === '1',
+    // The working variant's strip: whether its requests are open, and the move Claude just made
+    // (offered back for a few seconds).
+    asks: false,
     moved: null as Ref | null,
-    others: false,
+    // The sidebar's level shown as columns (null: the last two), and the phone sheet's column.
+    pairAt: null as number | null,
+    drill: null as number | null,
   }
 
   // ---------- data helpers ----------
@@ -165,8 +165,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const refOk = (r?: Ref | null) => { const p = r && byId(r.proto); const v = p && !p.archived && p.variants.find(x => x.id === r!.variant); return v ? { p: p!, v } : null }
   const workOf = () => refOk(session.work)
   const atWork = () => st.place.view === 'variant' && same(st.place, session.work) && !!workOf()
-  /** The variants the tabs, arrows, dock and tree show: all of them, unless Hide others is on. */
-  const visible = (p: Proto) => { const w = workOf(); return st.only && w?.p === p ? p.variants.filter(v => v.id === w.v.id) : p.variants }
+  const visible = (p: Proto) => p.variants
   const asksOf = (r: Ref) => session.asks?.[`${r.proto}/${r.variant}`] ?? []
   // States: those a variant has, the one a place points at, and whether a variant's note says
   // something changed. The first variant is the reference: its notes describe each state, the
@@ -237,10 +236,63 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const PICK = 'text-emerald-700 dark:text-emerald-400'
   const pickChip = (p: Proto, cls = '') => pickOf(p) ? `<span title="Picked ${esc(pickOf(p))} · ${esc(p.variants.find(v => v.id === pickOf(p))!.name)}" class="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-full bg-emerald-500/10 px-1.5 text-[11px] font-semibold ${PICK} ${cls}">${ic('check', 'size-3')}${esc(pickOf(p))}</span>` : ''
   const wide = () => matchMedia('(min-width: 1024px)').matches
-  // The sidebar opens the branch you're on (so its row is there to see) plus whatever you opened
-  // yourself; branches you only passed through close again behind you.
-  const branch = () => { const q = cur(); return new Set(q ? [...lineage(q).map(a => a.p.id), q.id] : []) }
-  const isOpen = (id: string, onBranch = branch()) => st.tree.get(id) ?? onBranch.has(id)
+
+  // ---------- the path, as columns ----------
+  // The switcher's dropdown, the sidebar and the phone's sheet all draw these. The first column
+  // is the prototypes that weren't built from anything; then each level is one prototype's
+  // variants, the one on the way here lit. A variant that more than one prototype was built from
+  // gets a column of those prototypes; with one, its variants come next directly. Past the place
+  // shown, what was built from it comes next, so the way on is one click.
+  type Col = { kind: 'protos'; list: Proto[]; sel: string; from?: Ref } | { kind: 'variants'; p: Proto; sel: string }
+  function columns(): Col[] {
+    const p = cur(), vid = st.place.view === 'variant' ? st.place.variant : ''
+    const roots = active().filter(isRoot)
+    if (!p) return [{ kind: 'protos', list: roots, sel: '' }]
+    const chain = [...lineage(p), { p, v: vid }]
+    const cols: Col[] = [{ kind: 'protos', list: chain[0].p.archived ? [...roots, chain[0].p] : roots, sel: chain[0].p.id }]
+    chain.forEach(({ p: q, v }, i) => {
+      const next = chain[i + 1], real = q.variants.some(x => x.id === v)
+      cols.push({ kind: 'variants', p: q, sel: real ? v : '' })
+      const kids = real ? kidsOf(q, v) : next ? looseKids(q) : []
+      const from = { proto: q.id, variant: v }
+      if (next) { if (kids.length > 1 || !real) cols.push({ kind: 'protos', list: kids, sel: next.p.id, from }) }
+      else if (kids.length > 1) cols.push({ kind: 'protos', list: kids, sel: '', from })
+      else if (kids.length === 1) cols.push({ kind: 'variants', p: kids[0], sel: '' })
+    })
+    return cols
+  }
+  const colName = (c: Col) => c.kind === 'variants' ? c.p.title : c.from ? `Built from ${c.from.variant || byId(c.from.proto)?.title || ''}` : 'Prototypes'
+  const colKey = (c: Col) => c.kind === 'variants' ? `v:${c.p.id}` : `p:${c.from ? `${c.from.proto}/${c.from.variant}` : ''}`
+  const colCount = (c: Col) => c.kind === 'variants' ? c.p.variants.length : c.list.length
+  const ROWC = 'text-zinc-700 hover:bg-zinc-900/[.04] dark:text-zinc-300 dark:hover:bg-white/[.06]'
+  const SELC = 'bg-zinc-900/[.06] font-medium text-zinc-900 dark:bg-white/[.09] dark:text-white'
+  const rowCls = (big: boolean) => `flex w-full min-w-0 items-center text-left ${big ? 'h-11 gap-2.5 rounded-lg px-2.5 text-[15px]' : 'h-[30px] gap-1.5 rounded-md px-1.5'}`
+  /** One variant in a column: the one shown is blue, the others on the way here are gray. */
+  function vRow(q: Proto, v: Variant, sel: boolean, big = false) {
+    const pl = st.place, here = pl.view === 'variant' && pl.proto === q.id && pl.variant === v.id
+    const w = workOf(), kids = kidsOf(q, v.id).length > 0
+    return `<button data-act="mv:${esc(q.id)}:${v.id}" aria-current="${sel}" class="${rowCls(big)} ${here ? 'bg-sky-500/15 font-medium text-sky-950 dark:text-sky-50' : sel ? SELC : ROWC}">
+      <span class="w-3.5 shrink-0 text-center text-[11px] font-semibold ${sel ? '' : 'text-zinc-400'}">${v.id}</span><span dir="auto" class="min-w-0 flex-1 truncate">${esc(v.name)}</span>${v.id === pickOf(q) ? `<span title="Picked" class="shrink-0">${ic('check', `size-3 ${PICK}`)}</span>` : ''}${w?.p === q && w.v === v ? `<span title="Your requests change this one" class="shrink-0">${ic('pin', 'size-3 text-emerald-600 dark:text-emerald-400')}</span>` : ''}${openComments(q.id, v.id)}${editing(q.id, v.id) ? pulse('size-1.5') : ''}${kids ? ic('right', `size-3 shrink-0 ${sel ? 'text-sky-600 dark:text-sky-400' : 'text-zinc-400'}`) : ''}</button>`
+  }
+  /** One prototype in a column; choosing it opens its variants. */
+  const pRow = (k: Proto, sel: boolean, big = false) => `<button data-act="mp:${esc(k.id)}" aria-current="${sel}" class="${rowCls(big)} ${sel ? SELC : k.archived ? 'text-zinc-400 hover:bg-zinc-900/[.04] dark:hover:bg-white/[.06]' : ROWC}">
+      <span dir="auto" class="min-w-0 flex-1 truncate ${k.archived ? 'line-through decoration-zinc-300' : ''}">${esc(k.title)}</span>${k.kind === 'phone' ? ic('phone', 'size-3 shrink-0 text-zinc-400') : ''}${pickChip(k)}${editingUnder(k) ? pulse('size-1.5') : ''}<span class="shrink-0 text-[10px] tabular-nums text-zinc-400">${k.variants.length}</span>${ic('right', 'size-3 shrink-0 text-zinc-400')}</button>`
+  function colRows(c: Col, big = false) {
+    const none = (t: string) => `<p class="px-2 py-1.5 text-[11px] text-zinc-400">${t}</p>`
+    if (c.kind === 'variants') return c.p.variants.map(v => vRow(c.p, v, c.sel === v.id, big)).join('') || none('No variants yet')
+    const rows = c.list.map(k => pRow(k, c.sel === k.id, big)).join('') || none('None yet')
+    // Archived prototypes fold under the first column.
+    const gone = c.from ? [] : archived().filter(k => !c.list.includes(k))
+    return rows + (gone.length ? `<button data-act="archived" aria-expanded="${st.archived}" class="${rowCls(big)} text-[11px] text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">${ic(st.archived ? 'chev' : 'right', 'size-3')}Archived<span class="ml-auto tabular-nums">${gone.length}</span></button>${st.archived ? gone.map(k => pRow(k, false, big)).join('') : ''}` : '')
+  }
+  /** A column's head: a prototype's opens its overview, the first column's the session's. */
+  const colHead = (c: Col) => {
+    const act = c.kind === 'variants' ? `lobby:proto:${esc(c.p.id)}` : c.from ? '' : 'lobby:session'
+    const title = c.kind === 'variants' ? `All ${c.p.variants.length} variants of ${esc(c.p.title)}` : c.from ? '' : 'Overview of the session'
+    const inner = `<span dir="auto" class="truncate">${esc(colName(c))}</span>${act ? ic('grid', 'size-3 shrink-0 opacity-0 group-hover/h:opacity-100') : ''}<span class="ml-auto shrink-0 tabular-nums">${colCount(c)}</span>`
+    const cls = 'group/h flex h-7 w-full min-w-0 shrink-0 items-center gap-1 px-2.5 text-left text-[10px] font-medium text-zinc-400'
+    return act ? `<button data-act="${act}" title="${title}" class="${cls} hover:text-zinc-900 dark:hover:text-white">${inner}</button>` : `<div class="${cls}">${inner}</div>`
+  }
 
   // ---------- skeleton ----------
   root.innerHTML = `<div class="flex h-dvh bg-white text-[13px] text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
@@ -566,13 +618,18 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     if (location.hash !== hashOf(p)) location.hash = hashOf(p)
     else arrive(p, true)
   }
+  // Choosing a variant something was built from, or a prototype, inside the switcher's columns
+  // (or the phone's sheet) keeps them open on what comes next.
+  let keepOpen = false, recenter = true
   function arrive(p: Place, fade: boolean) {
+    recenter = true
     const moved = JSON.stringify(p) !== JSON.stringify(st.place) || !layer
     st.place = p
-    st.open = null
-    st.drawer = false
+    if (!keepOpen) { st.open = null; st.menu = ''; st.drawer = false }
+    keepOpen = false
+    st.pairAt = null
+    st.drill = null
     st.sheet = false
-    st.menu = ''
     closeCard(true)
     if (p.view !== 'variant') st.focus = false
     localStorage.setItem(`proto-place-${session.id}`, hashOf(p))
@@ -661,6 +718,12 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
 
   // ---------- chrome ----------
   function render() {
+    // Scrolled lists in the chrome keep their place when it is redrawn (a status ping, an edit).
+    const keepScroll = (host: HTMLElement, html: string) => {
+      const was = new Map([...host.querySelectorAll<HTMLElement>('[data-k]')].map(el => [el.dataset.k!, [el.scrollTop, el.scrollLeft]]))
+      host.innerHTML = html
+      for (const el of host.querySelectorAll<HTMLElement>('[data-k]')) { const at = was.get(el.dataset.k!); if (at) [el.scrollTop, el.scrollLeft] = at }
+    }
     const p = cur()
     const view = st.place.view
     const vid = st.place.view === 'variant' ? st.place.variant : ''
@@ -674,12 +737,6 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const scaleMenu = `<div class="space-y-1.5 p-2"><div class="flex gap-0.5 rounded-lg bg-zinc-900/[.04] p-0.5 dark:bg-white/[.06]">${SCALES.map(s => `<button data-act="scale:${s}" data-scale-seg="${s}" aria-pressed="${st.scale === s}" class="${segCls(st.scale === s)}">${s ? s + '%' : 'Fit'}</button>`).join('')}</div>
       <div class="flex items-center">${scaleStep(-5, 'minus', 'Smaller')}<input data-scale-range type="range" min="${SCALE_MIN}" max="${SCALE_MAX}" step="1" value="${st.scale || 50}" aria-label="Phone scale" class="${RANGE} ${st.scale ? '' : 'opacity-40'}" style="--p:${rangeAt(st.scale || 50)}%">${scaleStep(5, 'plus', 'Bigger')}</div></div>`
 
-    // Each crumb is two buttons: the name opens that level's lobby, the chevron jumps.
-    const crumb = (act: string, menu: string, label: string, current: boolean, html: string, cls: string) => `<div class="flex min-w-0 items-center sm:relative">
-      <button data-act="${act}" ${current ? 'aria-current="page"' : ''} class="inline-flex h-9 min-w-0 items-center gap-1.5 rounded-l-md pl-2 pr-1 hover:bg-zinc-900/5 dark:hover:bg-white/10 ${current ? 'font-semibold' : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}">${label}</button>
-      <button data-act="open:${menu}" aria-label="Jump to…" aria-expanded="${st.open === menu}" class="inline-flex h-9 w-6 shrink-0 items-center justify-center rounded-r-md text-zinc-400 hover:bg-zinc-900/5 hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white ${st.open === menu ? ON : ''}">${ic('chev', 'size-3.5')}</button>
-      ${pop(st.open === menu, html, cls)}</div>`
-    const sep = '<span class="px-0.5 text-zinc-300 dark:text-zinc-700">/</span>'
     const row = (lead: string, body: string, end = '') => `<div class="flex min-h-10 items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] text-zinc-700 dark:text-zinc-300">${lead}<div class="min-w-0 flex-1">${body}</div>${end}</div>`
 
     const keep = !!st.status?.keep
@@ -701,13 +758,6 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       ${archived().length ? `${SEP}<div class="p-1.5"><button data-act="archived" class="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-xs text-zinc-400 hover:bg-zinc-900/[.03] hover:text-zinc-600 dark:hover:bg-white/5 dark:hover:text-zinc-200">${ic(st.archived ? 'chev' : 'right', 'size-3')}Archived<span class="ml-auto tabular-nums">${archived().length}</span></button>${st.archived ? archived().map(q => `<button data-act="proto:${esc(q.id)}" class="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-zinc-400 hover:bg-zinc-900/[.03] dark:hover:bg-white/5"><span class="size-1.5"></span><span dir="auto" class="line-through decoration-zinc-300">${esc(q.title)}</span><span class="ml-auto text-[11px] tabular-nums">${q.variants.length} variants</span></button>`).join('') : ''}</div>` : ''}`
     const protoMenu = `<div class="px-3.5 pb-0.5 pt-3 text-[11px] font-medium text-zinc-400">Prototypes in this session</div>${protoList}`
 
-    const col = (icon: string) => `<span class="flex w-6 shrink-0 justify-center text-zinc-500 dark:text-zinc-400">${icon}</span>`
-    const vRow = (v: Variant) => { const on = view === 'variant' && vid === v.id; return `<div data-q="${v.id} ${esc(v.name)}"><button data-act="variant:${v.id}" aria-current="${on}" class="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left outline-none focus-visible:bg-zinc-900/[.06] dark:focus-visible:bg-white/10 ${on ? 'bg-zinc-900/[.05] font-semibold text-zinc-900 dark:bg-white/[.08] dark:text-white' : 'text-zinc-700 hover:bg-zinc-900/[.03] dark:text-zinc-300 dark:hover:bg-white/5'}"><span class="w-6 shrink-0 text-center text-xs font-semibold tabular-nums ${on ? '' : 'text-zinc-400'}">${v.id}</span><span dir="auto" class="min-w-0 flex-1 truncate">${esc(v.name)}</span>${p && editing(p.id, v.id) ? pulse('size-1.5') : ''}</button></div>` }
-    const variantMenu = `${many ? `<div class="p-2 pb-1"><label class="flex h-10 items-center gap-2 rounded-lg bg-zinc-900/[.04] px-3 text-zinc-400 dark:bg-white/[.06]">${ic('search', 'size-4')}<input data-filter placeholder="Filter ${vs.length} variants" class="h-full min-w-0 flex-1 bg-transparent text-[13px] text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-white"></label></div>` : ''}
-      <div data-vlist class="max-h-[min(22rem,50vh)] space-y-0.5 overflow-y-auto overscroll-contain p-1.5">${vs.map(vRow).join('')}<p data-empty hidden class="px-3 py-6 text-center text-xs text-zinc-400">No variant matches</p></div>
-      <div class="space-y-0.5 border-t border-black/[.06] p-1.5 dark:border-white/10">${item('lobby:proto', 'All variants', `<span class="tabular-nums">${vs.length}</span>`, view === 'proto', col(ic('grid', 'size-3.5')))}${item('focus', 'Focus mode', '<kbd class="rounded border border-black/10 px-1 dark:border-white/10">F</kbd>', false, col(ic('grow', 'size-3.5')))}</div>
-      <div class="border-t border-black/[.06] px-4 py-2.5 text-[11px] text-zinc-400 dark:border-white/10">${many ? '↑↓ move · Enter opens · ←→ step' : '← → step through variants'}</div>`
-
     const v = vs.find(v => v.id === vid)
     // Where in the variant: its state, and the tool it is shown through.
     const pv = st.place.view === 'variant' ? st.place : null
@@ -717,15 +767,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     // A state name alone takes its own direction; after the tool's name it is isolated in the line.
     const whereHtml = toolName ? `${esc(toolName)}${stateName ? ` · ${bd(stateName)}` : ''}` : esc(stateName)
     const initial = esc((session.name.trim()[0] || 'P').toUpperCase())
-    // What this prototype was built from: one crumb per level, each opening the variant it came
-    // from. Narrow bars keep the nearest level and fold the rest into "…" (the tree drawer).
+    // What this prototype was built from, oldest first.
     const line = p && view !== 'session' ? lineage(p) : []
-    // Two levels or more fold into one chip that lists them; the sidebar shows the same path.
-    const levels = `<div class="px-3.5 pb-0.5 pt-3 text-[11px] font-medium text-zinc-400">Built from</div><div class="p-1.5">${line.map(a => { const x = a.p.variants.find(y => y.id === a.v); return `<button data-act="${x ? `pv:${esc(a.p.id)}:${esc(a.v)}` : `lobby:proto:${esc(a.p.id)}`}" class="flex h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left hover:bg-zinc-900/[.04] dark:hover:bg-white/[.06]"><span dir="auto" class="truncate">${esc(a.p.title)}</span>${a.v ? `<span class="ml-auto max-w-[55%] shrink-0 truncate rounded bg-zinc-900/[.06] px-1 text-[11px] font-semibold dark:bg-white/10">${esc(a.v)}${x ? ` · ${bd(x.name)}` : ''}</span>` : ''}</button>` }).join('')}</div>`
-    const ancestors = line.length >= 2
-      ? `${sep}<div class="flex shrink-0 items-center sm:relative"><button data-act="open:levels" aria-expanded="${st.open === 'levels'}" aria-label="Built from ${line.length} levels" title="${esc(line.map(a => `${a.p.title}${a.v ? ` ${a.v}` : ''}`).join(' › '))}" class="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-sky-700 hover:bg-sky-500/15 dark:text-sky-300 ${st.open === 'levels' ? 'bg-sky-500/15' : 'bg-sky-500/10'}">${ic('layers', 'size-3.5')}${line.length}<span class="hidden sm:inline">levels</span></button>${pop(st.open === 'levels', levels, 'inset-x-2 top-12 sm:inset-x-auto sm:left-0 sm:top-10 sm:w-80')}</div>`
-      : ((line.length ? `<span class="${line.length > 1 ? 'contents lg:hidden' : 'contents sm:hidden'}">${sep}<button data-act="side:1" class="${IB} px-0" aria-label="Built from ${esc(line.map(a => a.p.title).join(' › '))}">${ic('dots')}</button></span>` : '')
-      + line.map((a, i) => `<span class="${i < line.length - 1 ? 'hidden lg:contents' : 'hidden sm:contents'}">${sep}<button data-act="${a.v && a.p.variants.some(x => x.id === a.v) ? `pv:${esc(a.p.id)}:${esc(a.v)}` : `lobby:proto:${esc(a.p.id)}`}" class="inline-flex h-9 min-w-0 items-center gap-1.5 rounded-md px-2 text-zinc-500 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"><span dir="auto" class="truncate">${esc(a.p.title)}</span>${a.v ? `<span class="shrink-0 rounded bg-zinc-900/[.06] px-1 text-[11px] font-semibold tabular-nums dark:bg-white/10">${esc(a.v)}</span>` : ''}</button></span>`).join(''))
     // On a phone the bar is back, title and session: back goes one level up (to the variant this
     // was built from, else the session), the title opens the prototypes, ⋯ the session. The
     // variant and the scale are in the pill.
@@ -734,45 +777,65 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       : { act: 'lobby:session', label: session.name }
     const phoneBar = `<div class="grid min-w-0 flex-1 grid-cols-[1fr_auto_1fr] items-center gap-1 sm:hidden">
         <div class="flex min-w-0">${up ? `<button data-act="${up.act}" class="flex h-9 min-w-0 items-center gap-0.5 rounded-lg pr-2 text-zinc-600 active:bg-zinc-900/5 dark:text-zinc-400 dark:active:bg-white/10">${ic('left', 'size-5')}<span dir="auto" class="truncate">${esc(up.label)}</span></button>` : ''}</div>
-        <button data-act="menu:protos" aria-haspopup="dialog" class="flex h-10 min-w-0 max-w-[13rem] items-center gap-1 rounded-lg px-2 active:bg-zinc-900/5 dark:active:bg-white/10"><span class="min-w-0 leading-tight"><span dir="auto" class="block truncate font-semibold">${esc(view === 'session' ? session.name : p!.title)}</span>${where ? `<span dir="auto" class="block truncate text-[11px] font-medium text-sky-700 dark:text-sky-300">${whereHtml}</span>` : ''}</span>${ic('chev', 'size-3.5 shrink-0 text-zinc-400')}</button>
+        <button data-act="menu:protos" aria-haspopup="dialog" class="flex h-10 min-w-0 max-w-[13rem] items-center gap-1 rounded-lg px-2 active:bg-zinc-900/5 dark:active:bg-white/10"><span class="min-w-0 leading-tight"><span dir="auto" class="block truncate font-semibold">${esc(view === 'session' ? session.name : p!.title)}</span>${where ? `<span dir="auto" class="block truncate text-[11px] font-medium text-sky-700 dark:text-sky-300">${whereHtml}</span>` : v ? `<span dir="auto" class="block truncate text-[11px] text-zinc-500">${v.id} · ${esc(v.name)}</span>` : ''}</span>${ic('chev', 'size-3.5 shrink-0 text-zinc-400')}</button>
         <div class="flex justify-end"><button data-act="menu:session" aria-label="Session" aria-haspopup="dialog" class="${IB} relative">${ic('dots')}<span class="absolute right-1 top-1 flex rounded-full ring-2 ring-white dark:ring-zinc-950">${pulse('size-1.5', st.live && !st.stopped)}</span></button></div>
       </div>`
-    bar.innerHTML = `${phoneBar}<div class="hidden min-w-0 flex-1 items-center gap-1 sm:flex"><button data-act="side:1" class="${IB} shrink-0 ${st.side ? 'lg:hidden' : ''}" title="Show sidebar · ⌘\\" aria-label="Show sidebar">${ic('sidebar')}</button>
-      <nav class="flex min-w-0 items-center" aria-label="Breadcrumb">
-        ${crumb('lobby:session', 'session', `<span class="relative grid size-5 shrink-0 place-items-center rounded bg-zinc-900 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-900">${initial}<span class="absolute -right-1 -top-1 flex rounded-full ring-2 ring-white dark:ring-zinc-950">${pulse('size-2', st.live && !st.stopped)}</span></span><span dir="auto" class="hidden truncate md:inline">${esc(session.name)}</span>`, view === 'session', sessionMenu, 'left-2 top-12 w-[22rem] max-w-[calc(100vw-1rem)] sm:left-0')}
-        ${ancestors}
-        ${p ? sep + crumb('lobby:proto', 'proto', `<span dir="auto" class="truncate">${esc(p.title)}</span>`, view === 'proto', protoMenu, 'inset-x-2 top-12 sm:inset-x-auto sm:left-0 sm:w-96') : ''}
-        ${v ? sep + crumb(`variant:${v.id}`, 'variant', `<b class="shrink-0 text-zinc-900 dark:text-white">${v.id}</b><span class="hidden font-normal text-zinc-400 sm:block">·</span><span dir="auto" class="hidden min-w-0 truncate font-normal text-zinc-500 sm:block dark:text-zinc-400">${esc(v.name)}</span>`, true, variantMenu, 'right-2 top-12 w-72 sm:left-0 sm:right-auto') : ''}
-        ${where ? `${sep}<span class="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md bg-sky-500/10 px-2 font-medium text-sky-700 dark:text-sky-300">${pv!.tool ? ic(TOOLS[pv!.tool].icon, 'size-3.5') : ''}<span dir="auto" class="truncate">${whereHtml}</span></span>` : ''}
-      </nav>
-      <div class="ml-auto flex items-center gap-1">
+    // The switcher: where you are on two lines (the prototype and variant, then the session and
+    // what it was built from), opening the whole session as columns.
+    const sub = view === 'session' ? `${active().length} prototype${active().length === 1 ? '' : 's'}`
+      : [session.name, ...line.map(a => `${a.p.title} ${a.v}`)].map(t => `<span dir="auto" class="min-w-0 max-w-[12rem] shrink truncate">${esc(t)}</span>`).join(ic('right', 'size-3 shrink-0 text-zinc-400'))
+    const switcher = `<div class="relative flex min-w-0">
+        <button data-act="open:switch" data-shoot="switcher" aria-haspopup="dialog" aria-expanded="${st.open === 'switch'}" title="Every prototype and variant" class="flex h-10 min-w-0 items-center gap-2 rounded-lg px-2.5 text-left hover:bg-zinc-900/5 dark:hover:bg-white/10 ${st.open === 'switch' ? ON : ''}">
+          <span class="min-w-0 leading-tight">
+            <span class="flex min-w-0 items-center gap-1.5 font-semibold">${view === 'session' ? `<span dir="auto" class="truncate">${esc(session.name)}</span>` : `<span dir="auto" class="truncate">${esc(p!.title)}</span><span class="shrink-0 font-normal text-zinc-400">·</span>${v ? `<b class="shrink-0">${v.id}</b><span dir="auto" class="min-w-0 truncate">${esc(v.name)}</span>` : '<span class="shrink-0 font-normal text-zinc-500">All variants</span>'}`}${p && pickOf(p) && v?.id === pickOf(p) ? ic('check', `size-3.5 shrink-0 ${PICK}`) : ''}</span>
+            <span class="flex min-w-0 items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400">${sub}${where ? `<span class="shrink-0 text-zinc-300 dark:text-zinc-600">·</span><span dir="auto" class="min-w-0 truncate font-medium text-sky-700 dark:text-sky-300">${whereHtml}</span>` : ''}</span>
+          </span>${ic('chev', `size-3.5 shrink-0 text-zinc-400 transition-transform ${st.open === 'switch' ? 'rotate-180' : ''}`)}</button>
+        ${pop(st.open === 'switch', miller(), 'left-0 top-11')}</div>`
+    const stepper = v && vs.length > 1 ? `<button data-act="step:-1" aria-label="Previous variant" title="Previous variant · ←" class="${IB} shrink-0">${ic('left')}</button><span class="w-9 shrink-0 text-center text-xs tabular-nums text-zinc-500">${at + 1}<span class="text-zinc-400 dark:text-zinc-600">/${vs.length}</span></span><button data-act="step:1" aria-label="Next variant" title="Next variant · →" class="${IB} shrink-0">${ic('right')}</button>` : ''
+    keepScroll(bar, `${phoneBar}<div class="hidden min-w-0 flex-1 items-center gap-1 sm:flex"><button data-act="side:1" class="${IB} shrink-0 ${st.side ? 'lg:hidden' : ''}" title="Show sidebar · ⌘\\" aria-label="Show sidebar">${ic('sidebar')}</button>
+      <div class="relative shrink-0"><button data-act="open:session" aria-label="Session" aria-expanded="${st.open === 'session'}" title="${esc(session.name)}" class="${IB} ${st.open === 'session' ? ON : ''}"><span class="relative grid size-5 shrink-0 place-items-center rounded bg-zinc-900 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-900">${initial}<span class="absolute -right-1 -top-1 flex rounded-full ring-2 ring-white dark:ring-zinc-950">${pulse('size-2', st.live && !st.stopped)}</span></span></button>${pop(st.open === 'session', sessionMenu, 'left-0 top-11 w-[22rem] max-w-[calc(100vw-1rem)]')}</div>
+      ${switcher}
+      <div class="ml-auto flex shrink-0 items-center gap-1">
+        ${stepper}${stepper && commentHost() ? '<span class="mx-1 h-5 w-px bg-black/10 dark:bg-white/10"></span>' : ''}
         ${commentBtn()}
-        <div class="hidden sm:block">${seg()}</div>
         ${phones ? `<div class="relative"><button data-act="open:scale" aria-expanded="${st.open === 'scale'}" class="${IB} text-xs tabular-nums ${st.open === 'scale' ? 'bg-zinc-900/5 text-zinc-900 dark:bg-white/10 dark:text-white' : ''}">${ic('phone')}<span data-scale-label>${scaleLabel()}</span></button>${pop(st.open === 'scale', scaleMenu, 'right-0 top-11 w-72')}</div>` : ''}
-      </div></div>`
-    menus = { protos: protoList, session: sessionBody }
+      </div></div>`)
+    menus = { protos: drill(), session: sessionBody }
 
-    function seg() {
-      if (!p || !vs.length) return ''
-      return `<div class="flex items-center gap-0.5 rounded-lg bg-zinc-900/[.04] p-0.5 dark:bg-white/[.06]" role="tablist">
-        <button data-act="lobby:proto" title="All variants" aria-selected="${view === 'proto'}" class="grid h-8 w-9 place-items-center rounded-md ${view === 'proto' ? TAB_ON : TAB_OFF}">${ic('grid', 'size-3.5')}</button>
-        ${many ? `<button data-act="step:-1" aria-label="Previous variant" class="grid h-8 w-7 place-items-center rounded-md ${TAB_OFF}">${ic('left', 'size-3.5')}</button>` : ''}
-        ${shown.map(x => `<button data-act="variant:${x.id}" title="${esc(x.name)}" role="tab" aria-selected="${vid === x.id}" class="relative h-8 min-w-9 rounded-md px-2.5 text-xs font-semibold ${vid === x.id ? TAB_ON : TAB_OFF}">${x.id}${editing(p.id, x.id) ? `<span class="absolute right-1 top-1">${pulse('size-1.5')}</span>` : ''}</button>`).join('')}
-        ${many ? `<button data-act="step:1" aria-label="Next variant" class="grid h-8 w-7 place-items-center rounded-md ${TAB_OFF}">${ic('right', 'size-3.5')}</button><button data-act="open:variant" title="All ${vs.length} variants" class="h-8 rounded-md px-2 text-xs tabular-nums ${st.open === 'variant' ? TAB_ON : TAB_OFF}">${at + 1}<span class="text-zinc-400">/${vs.length}</span></button>` : ''}
-      </div>`
+    // The switcher's dropdown: one column per level, scrolled to the last, and what is shown
+    // described beside them.
+    function miller() {
+      const cols = columns()
+      const q = p && pv ? p.variants.find(x => x.id === pv.variant) : undefined
+      const kids = p && q ? kidsOf(p, q.id) : []
+      const about = !p ? `<div dir="auto" class="font-semibold">${esc(session.name)}</div><p class="mt-1 text-xs text-zinc-500">${active().length} prototypes · started ${clock(session.createdAt)}</p>`
+        : `<div class="text-[11px] text-zinc-500"><span dir="auto">${esc(p.title)}</span></div><div class="mt-0.5 flex items-center gap-1.5 font-semibold">${q ? `<b>${q.id}</b><span dir="auto" class="truncate">${esc(q.name)}</span>` : 'All variants'}</div>
+          ${q && p.about[q.id] ? `<p dir="auto" class="mt-2 text-xs leading-[18px] text-zinc-600 dark:text-zinc-400">${esc(p.about[q.id])}</p>` : !q && p.ask ? `<p dir="auto" class="mt-2 text-xs leading-[18px] text-zinc-600 dark:text-zinc-400">“${esc(p.ask)}”</p>` : ''}
+          <p class="mt-2 text-[11px] text-zinc-400">${[q && q.id === pickOf(p) ? 'Picked' : '', q && same(session.work, { proto: p.id, variant: q.id }) ? 'Your requests change it' : '', kids.length ? `${kids.length} built from it` : '', line.length ? `${line.length + 1} levels deep` : ''].filter(Boolean).join(' · ')}</p>
+          ${q ? `<button data-act="lobby:proto:${esc(p.id)}" class="mt-auto flex h-8 items-center justify-center gap-1.5 rounded-lg text-xs font-medium ring-1 ring-inset ring-black/10 hover:bg-zinc-900/[.04] dark:ring-white/15 dark:hover:bg-white/[.06]">${ic('grid', 'size-3.5')}All ${p.variants.length} variants</button>` : ''}`
+      return `<div data-fitw="${cols.length * 200 + 224}" class="flex h-[26rem] max-h-[calc(100dvh-5rem)]">
+        <div data-mcols data-k="mcols" class="flex min-w-0 flex-1 overflow-x-auto overscroll-contain">${cols.map(c => `<div class="flex w-[12.5rem] shrink-0 flex-col border-r border-black/[.06] pt-1 dark:border-white/10">${colHead(c)}<div data-vlist data-k="${esc(colKey(c))}" class="relative min-h-0 flex-1 space-y-px overflow-y-auto overscroll-contain px-1.5 pb-2">${colRows(c)}</div></div>`).join('')}</div>
+        <div class="flex w-56 shrink-0 flex-col bg-zinc-900/[.02] p-4 dark:bg-white/[.02]">${about}</div></div>`
     }
-    const keepScroll = (host: HTMLElement, html: string) => {
-      const top = host.querySelector('[data-tree]')?.scrollTop ?? 0
-      host.innerHTML = html
-      const t = host.querySelector('[data-tree]')
-      if (t) t.scrollTop = top
+
+    // The phone's sheet: the same columns, one at a time. It opens on the last; back steps left,
+    // and the chips jump to any level on the way.
+    function drill() {
+      const cols = columns(), i = Math.min(st.drill ?? cols.length - 1, cols.length - 1), c = cols[i], back = i > 0 ? cols[i - 1] : null
+      const chips = cols.map((x, j) => ({ x, j })).filter(({ x }) => x.kind === 'variants' && x.sel)
+      return `<div class="pb-3">
+        <div class="flex h-10 items-center px-1">${back ? `<button data-act="drill:${i - 1}" class="flex h-10 min-w-0 items-center gap-0.5 rounded-lg pr-2 text-zinc-600 active:bg-zinc-900/5 dark:text-zinc-400 dark:active:bg-white/10">${ic('left', 'size-5')}<span dir="auto" class="truncate">${esc(colName(back))}${back.kind === 'variants' && back.sel ? ` <b>${esc(back.sel)}</b>` : ''}</span></button>` : ''}</div>
+        <div class="flex items-end gap-2 px-3 pb-2"><div class="min-w-0 flex-1"><div dir="auto" class="truncate text-xl font-semibold leading-tight">${esc(colName(c))}</div><div class="mt-0.5 text-xs text-zinc-500">${colCount(c)} ${c.kind === 'variants' ? 'variants' : 'prototypes'}</div></div>
+          ${c.kind === 'variants' ? `<button data-act="lobby:proto:${esc(c.p.id)}" class="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium ring-1 ring-inset ring-black/10 dark:ring-white/15">${ic('grid', 'size-3.5')}All</button>` : c.from ? '' : '<button data-act="lobby:session" class="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium ring-1 ring-inset ring-black/10 dark:ring-white/15">Overview</button>'}</div>
+        ${chips.length > 1 ? `<div data-mcols class="flex gap-1.5 overflow-x-auto px-3 pb-3 [scrollbar-width:none]">${chips.map(({ x, j }) => `<button data-act="drill:${j}" class="h-8 shrink-0 rounded-full px-3 text-xs ${j === i ? 'bg-sky-500/15 font-semibold text-sky-800 dark:text-sky-200' : 'bg-zinc-900/[.05] text-zinc-600 dark:bg-white/[.07] dark:text-zinc-300'}"><span dir="auto">${esc(colName(x))}</span> <b>${esc(x.sel)}</b></button>`).join('')}</div>` : ''}
+        <div class="space-y-px px-2">${colRows(c, true)}</div></div>`
     }
     side.className = st.side ? 'hidden shrink-0 flex-col border-r border-black/[.07] lg:flex dark:border-white/10' : 'hidden'
     side.style.width = `${st.sideW}px`
     grip.classList.toggle('lg:block', st.side)
     grip.setAttribute('aria-valuenow', String(st.sideW))
-    keepScroll(side, st.side ? tree(false) : '')
-    keepScroll(drawer, st.drawer ? `<div class="fixed inset-0 z-50 lg:hidden"><div data-act="drawer:0" class="absolute inset-0 bg-black/30"></div><div class="absolute inset-y-0 left-0 flex w-[19rem] max-w-[85%] flex-col bg-white shadow-2xl dark:bg-zinc-950">${tree(true)}</div></div>` : '')
+    keepScroll(side, st.side ? sideNav(false) : '')
+    keepScroll(drawer, st.drawer ? `<div class="fixed inset-0 z-50 lg:hidden"><div data-act="drawer:0" class="absolute inset-0 bg-black/30"></div><div class="absolute inset-y-0 left-0 flex w-[19rem] max-w-[85%] flex-col bg-white shadow-2xl dark:bg-zinc-950">${sideNav(true)}</div></div>` : '')
 
     // Focus mode restyles the zone to cover the page; the mounted design stays put. On a phone
     // the variant pill takes a strip at the bottom of the stage, so it never covers the design.
@@ -806,12 +869,17 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
 
     if (st.focus) requestAnimationFrame(runDock)
     restoreEdgeLabels()
-    if (canHover()) root.querySelector<HTMLInputElement>('[data-filter]')?.focus({ preventScroll: true })
-    requestAnimationFrame(() => {
+    // The dropdown is as wide as its columns, up to the window's edge (the columns scroll).
+    for (const el of bar.querySelectorAll<HTMLElement>('[data-fitw]')) el.style.width = `${Math.min(Number(el.dataset.fitw), innerWidth - el.getBoundingClientRect().left - 12)}px`
+    // On arrival (or a menu or level opening) each column centers what is lit, and the
+    // dropdown's columns scroll to the last one.
+    if (recenter) requestAnimationFrame(() => {
+      recenter = false
       for (const list of root.querySelectorAll<HTMLElement>('[data-vlist]')) {
         const on = list.querySelector<HTMLElement>('[aria-current="true"]')
-        if (on) list.scrollTop = on.offsetTop - list.offsetTop - list.clientHeight / 2 + on.clientHeight / 2
+        if (on) list.scrollTop = on.offsetTop - list.clientHeight / 2 + on.clientHeight / 2
       }
+      for (const m of root.querySelectorAll<HTMLElement>('[data-mcols]')) m.scrollLeft = m.scrollWidth
     })
     document.title = [where, v && `${v.id} · ${v.name}`, p?.title, session.name].filter(Boolean).join(' – ')
     paintIcon()
@@ -872,7 +940,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     syncScale()
     paintMenu({
       open: !!st.menu,
-      title: st.menu === 'session' ? session.name : 'Prototypes',
+      title: st.menu === 'session' ? session.name : 'Find a design',
       html: st.menu ? menus[st.menu] : '',
       onClose: () => { st.menu = ''; render() },
     })
@@ -1103,113 +1171,79 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   })
 
   // ---------- sidebar ----------
-  // Prototypes as a tree: each opens to its variants. A prototype built from a variant is one
-  // row under it, never a deeper indent. Inside a nested prototype the tree shows only its
-  // branch: what it was built from, one line per level, then the prototype itself; every other
-  // prototype folds under one row. The working variant's card sits on top.
-  function tree(inDrawer: boolean) {
-    const p = cur(), view = st.place.view, vid = view === 'variant' ? st.place.variant : ''
-    const onBranch = branch()
-    const ROW = 'text-zinc-600 hover:bg-zinc-900/[.04] hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/[.06] dark:hover:text-white'
-    const nested = (list: Proto[]) => list.map(k => `<button data-act="lobby:proto:${esc(k.id)}" class="mb-1 ml-[30px] flex h-8 w-[calc(100%-34px)] min-w-0 items-center gap-2 rounded-lg px-2 text-left text-xs font-medium ${NEST}">${ic('branch', 'size-3.5 shrink-0')}<span dir="auto" class="truncate">${esc(k.title)}</span>${pickChip(k)}${editingUnder(k) ? pulse('size-1.5') : ''}<span class="ml-auto shrink-0 tabular-nums opacity-70">${k.variants.length}</span>${ic('right', 'size-3.5 opacity-70')}</button>`).join('')
-    const w = workOf()
-    function node(q: Proto): string {
-      const open = isOpen(q.id, onBranch), here = q.id === p?.id && view !== 'session'
-      const variants = visible(q).map(v => {
-        const on = here && vid === v.id, ks = kidsOf(q, v.id), sts = statesOf(q, v.id)
-        const at = on && st.place.view === 'variant' ? st.place : null
-        const tool = at?.tool
-        // The leaf that is lit: the state shown (autoplay: the one it is on), or At rest.
-        const lit = tool === 'all' ? null : tool === 'play' ? st.playing : at?.state ?? ''
-        const key = `vm|${q.id}|${v.id}`, menu = st.open === key
-        // The row itself is lit when there are no leaves to carry it (or All states is on).
-        const rowOn = on && (!sts.length || tool === 'all')
-        const tools = (['play', 'all', 'compare'] as Tool[]).filter(t => toolOk(q, v.id, t))
-        const menuHtml = `<div class="p-1.5" role="menu"><div class="px-2.5 pb-1 pt-1 text-[11px] font-medium text-zinc-400">${v.id} · ${bd(v.name)}</div>${tools.map(t => {
-          const isOn = tool === t, meta = t === 'all' ? `${sts.length + 1}` : t === 'compare' ? `with ${otherOf(q, v.id)}` : ''
-          return `<button data-act="tool:${esc(q.id)}:${v.id}:${t}" role="menuitem" class="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left ${isOn ? ON : 'hover:bg-zinc-900/[.04] dark:hover:bg-white/[.06]'}">${ic(TOOLS[t].icon, 'mt-0.5 size-4 text-zinc-500 dark:text-zinc-400')}<span class="min-w-0 flex-1"><span class="flex items-baseline gap-1.5 font-medium text-zinc-900 dark:text-white">${TOOLS[t].name}<span class="text-[11px] font-normal text-zinc-400">${meta}</span></span><span class="block text-xs text-zinc-500">${TOOLS[t].hint}</span></span>${isOn ? ic('check', 'mt-0.5 size-4') : ''}</button>`
-        }).join('')}</div>`
-        const leaf = (x?: State) => {
-          const id = x?.id ?? '', lighted = lit === id, note = x?.about?.[v.id]
-          return `<button data-act="pvs:${esc(q.id)}:${v.id}:${esc(id)}" aria-current="${lighted}" class="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left ${lighted ? ON : ROW}">${dot(q, v.id, x, lighted)}<span class="min-w-0 flex-1"><span class="flex items-center gap-1.5 leading-4 ${lighted ? 'font-medium text-zinc-900 dark:text-white' : ''}"><span dir="auto" class="truncate">${esc(x?.name ?? 'At rest')}</span>${lighted && tool === 'play' ? ic('play', 'size-3 text-sky-500') : ''}</span>${note && x ? `<span dir="auto" class="mt-1 block text-[11px] leading-[15px] ${noteCls(q, v.id, x)}">${esc(note)}</span>` : ''}</span></button>`
-        }
-        return `<div class="group/v relative flex h-8 items-center rounded-lg ${rowOn ? `${ON} font-medium` : ROW}">
-            <button data-act="pv:${esc(q.id)}:${v.id}" aria-current="${rowOn}" class="flex h-8 min-w-0 flex-1 items-center gap-2.5 pl-2 pr-1 text-left"><span class="w-4 shrink-0 text-center text-xs font-semibold ${on ? '' : 'text-zinc-400'}">${v.id}</span><span dir="auto" class="min-w-0 truncate ${on ? 'text-zinc-900 dark:text-white' : ''}">${esc(v.name)}</span>${v.id === pickOf(q) ? `<span title="Picked">${ic('check', `size-3.5 ${PICK}`)}</span>` : ''}${w?.p === q && w.v === v ? `<span title="Working on">${ic('pin', 'size-3.5 text-emerald-600 dark:text-emerald-400')}</span>` : ''}${editing(q.id, v.id) ? pulse('size-1.5') : ''}${openComments(q.id, v.id)}</button>
-            ${ks.length ? `<span class="shrink-0 px-1" title="${ks.length} built from ${v.id}">${ic('branch', 'size-3.5 text-sky-500')}</span>` : ''}
-            ${tool ? `<button data-act="tool:${esc(q.id)}:${v.id}:${tool}" title="${TOOLS[tool].name} is on · click to stop" aria-label="Stop ${TOOLS[tool].name}" class="grid size-7 shrink-0 place-items-center rounded-md bg-sky-500/10 text-sky-700 hover:bg-sky-500/20 dark:text-sky-300">${ic(TOOLS[tool].icon, 'size-3.5')}</button>` : ''}
-            ${tools.length && q.states.length ? `<button data-act="open:${key}" aria-label="Tools for ${v.id}" aria-haspopup="menu" aria-expanded="${menu}" title="Autoplay, all states, compare" class="size-7 shrink-0 place-items-center rounded-md ${menu || tool ? 'grid' : 'hidden group-hover/v:grid group-focus-within/v:grid [@media(hover:none)]:grid'} ${menu ? ON : 'text-zinc-400 hover:bg-zinc-900/[.06] hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white'}">${ic('dots')}</button>${pop(menu, menuHtml, 'inset-x-0 top-9 min-w-56')}` : ''}
-          </div>
-          ${q.about?.[v.id] ? `<p dir="auto" class="mb-1.5 ml-[34px] mr-2 mt-0.5 text-[11.5px] leading-snug ${on ? 'text-zinc-600 dark:text-zinc-400' : 'text-zinc-400 dark:text-zinc-500'}">${esc(q.about[v.id])}</p>` : ''}
-          ${on && sts.length ? `<div class="mb-1 ml-[15px] border-l border-black/[.08] pl-1.5 dark:border-white/10">${leaf()}${sts.map(leaf).join('')}</div>` : ''}
-          ${nested(ks)}`
-      }).join('')
-      return `<div><div class="flex h-9 items-center rounded-lg ${here && view === 'proto' ? ON : ROW}">
-        <button data-act="fold:${esc(q.id)}" aria-expanded="${open}" aria-label="${open ? 'Fold' : 'Open'} ${esc(q.title)}" class="grid h-9 w-7 shrink-0 place-items-center text-zinc-400">${ic(open ? 'chev' : 'right', 'size-3.5')}</button>
-        <button data-act="lobby:proto:${esc(q.id)}" aria-current="${here && view === 'proto'}" class="flex h-9 min-w-0 flex-1 items-center gap-2 pr-2 text-left"><span dir="auto" class="truncate ${here ? 'font-semibold text-zinc-900 dark:text-white' : ''}">${esc(q.title)}</span>${q.kind === 'phone' ? ic('phone', 'size-3.5 text-zinc-400') : ''}${pickChip(q)}${!open && editingUnder(q) ? pulse('size-1.5') : ''}<span class="ml-auto text-xs tabular-nums text-zinc-400">${q.variants.length}</span></button></div>
-        ${open ? `<div class="ml-[13px] border-l border-black/[.08] pl-1.5 dark:border-white/10">${variants}${nested(looseKids(q))}</div>` : ''}</div>`
+  // The switcher's columns, stacked: every level of the path is one line saying what is chosen
+  // there, and one level opens as two columns side by side (the last two, unless a line was
+  // clicked). Under them, the states and tools of the variant shown. On top, the variant your
+  // requests change, said in words.
+  function sideNav(inDrawer: boolean) {
+    const cols = columns(), last = Math.max(0, cols.length - 2)
+    const at = Math.min(st.pairAt ?? last, last)
+    const pair = cols.slice(at, at + 2)
+    const lineOf = (c: Col, i: number) => {
+      const v = c.kind === 'variants' ? c.p.variants.find(x => x.id === c.sel) : undefined
+      const k = c.kind === 'protos' ? c.list.find(x => x.id === c.sel) : undefined
+      return `<button data-act="line:${i}" title="Open this level" class="flex h-10 w-full min-w-0 items-center gap-2 rounded-lg px-1.5 text-left hover:bg-zinc-900/[.04] dark:hover:bg-white/[.06]">
+        <span class="grid size-7 shrink-0 place-items-center rounded-md bg-zinc-900/[.05] text-[11px] font-semibold text-zinc-600 dark:bg-white/[.07] dark:text-zinc-300">${v ? v.id : ic('layers', 'size-3.5 text-zinc-400')}</span>
+        <span class="min-w-0 flex-1 leading-tight"><span dir="auto" class="block truncate text-[10px] text-zinc-500">${esc(colName(c))}</span><span class="flex min-w-0 items-center gap-1 font-medium">${v ? `<span dir="auto" class="truncate">${esc(v.name)}</span>${c.kind === 'variants' && v.id === pickOf(c.p) ? ic('check', `size-3 shrink-0 ${PICK}`) : ''}` : k ? `<span dir="auto" class="truncate">${esc(k.title)}</span>` : '<span class="font-normal text-zinc-400">Choose one</span>'}</span></span>
+        <span class="shrink-0 text-[10px] tabular-nums text-zinc-400">${colCount(c)}</span>${ic('chev', 'size-3 shrink-0 text-zinc-400')}</button>`
     }
-    // Nested: the levels it was built from, oldest first, each opening the variant it went through.
-    const line = p && view !== 'session' ? lineage(p) : []
-    const path = `<p class="px-2 pb-1 text-[11px] font-medium text-zinc-400">Built from</p><ol class="mb-2 ml-[15px] border-l-2 border-sky-500/30">${line.map(a => { const x = a.p.variants.find(y => y.id === a.v); return `<li><button data-act="${x ? `pv:${esc(a.p.id)}:${esc(a.v)}` : `lobby:proto:${esc(a.p.id)}`}" class="-ml-px flex h-8 w-full min-w-0 items-center gap-2 rounded-r-lg pl-3 pr-2 text-left ${ROW}"><span dir="auto" class="truncate">${esc(a.p.title)}</span>${a.v ? `<span class="ml-auto max-w-[55%] shrink-0 truncate rounded bg-sky-500/10 px-1.5 text-[11px] font-semibold text-sky-700 dark:text-sky-300">${esc(a.v)}${x ? ` · ${bd(x.name)}` : ''}</span>` : ''}</button></li>` }).join('')}</ol>`
-    const onPath = new Set(line.map(a => a.p.id))
-    const others = active().filter(q => isRoot(q) && !onPath.has(q.id) && q !== p)
-    const cardOpen = atWork()
+    const box = `<div class="my-1 flex max-h-[26rem] divide-x divide-black/[.06] overflow-hidden rounded-xl ring-1 ring-black/[.08] dark:divide-white/[.07] dark:ring-white/10">${pair.map((c, k) => `<div class="flex min-w-0 flex-1 flex-col pt-0.5 ${k === 0 && pair.length > 1 ? 'bg-zinc-900/[.02] dark:bg-white/[.02]' : ''}">${colHead(c)}<div data-vlist data-k="${esc(colKey(c))}" class="relative min-h-0 flex-1 space-y-px overflow-y-auto overscroll-contain px-1 pb-1.5">${colRows(c)}</div></div>`).join('')}</div>`
 
-    // The working variant: a small card while you are elsewhere (one click or W takes you
-    // back); on it, the card opens into what belongs to it.
-    function workCard() {
-      if (!w) return ''
-      const here = atWork(), open = here
-      const asks = asksOf(session.work!).slice().reverse()
-      const last = Date.parse(asks[0]?.at ?? session.work!.at ?? '')
-      const kids = kidsOf(w.p, w.v.id)
-      const before = (session.before ?? []).map(r => ({ r, x: refOk(r) })).filter(b => b.x && !same(b.r, session.work))
-      const mv = st.moved && refOk(st.moved)
-      const toggle = (on: boolean) => `<span class="relative h-3.5 w-6 shrink-0 rounded-full transition-colors ${on ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}"><span class="absolute top-0.5 size-2.5 rounded-full bg-white shadow transition-all ${on ? 'left-3' : 'left-0.5'}"></span></span>`
-      const head = `<div class="flex items-start">
-          <button data-act="work:go" ${here ? 'aria-current="true"' : 'title="Back to the variant you are working on · W"'} class="flex min-w-0 flex-1 items-center gap-2.5 p-2 text-left">
-            <span class="grid size-9 shrink-0 place-items-center rounded-lg text-[13px] font-semibold ${here ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-zinc-900/[.05] text-zinc-600 dark:bg-white/10 dark:text-zinc-300'}">${w.v.id}</span>
-            <span class="min-w-0 flex-1"><span class="flex items-center gap-1.5 text-[11px] font-medium ${here ? PICK : 'text-zinc-400'}">Working on${editing(w.p.id, w.v.id) ? `<span class="inline-flex items-center gap-1 text-emerald-600">${pulse('size-1.5')}editing</span>` : ''}</span>
-              <span class="flex min-w-0 items-center gap-1.5"><b class="font-semibold">${w.v.id}</b><span dir="auto" class="truncate">${esc(w.v.name)}</span></span>
-              <span class="flex min-w-0 gap-1 text-xs text-zinc-500"><span dir="auto" class="truncate">${esc(w.p.title)}</span>${last ? `<span class="shrink-0 text-zinc-400">· <span data-ago="${last}">${ago(last)}</span></span>` : ''}</span></span>
-          </button>
-          ${here ? '' : '<kbd class="m-2 hidden shrink-0 rounded border border-black/10 px-1 text-[11px] text-zinc-400 [@media(hover:hover)]:block dark:border-white/10">W</kbd>'}
+    // The variant shown: its states (each opens it in that state) and its tools.
+    const p = cur(), pv = st.place.view === 'variant' ? st.place : null
+    const v = p && pv ? p.variants.find(x => x.id === pv.variant) : undefined
+    let here = ''
+    if (p && pv && v) {
+      const sts = statesOf(p, v.id), tool = pv.tool
+      const lit = tool === 'all' ? null : tool === 'play' ? st.playing : pv.state ?? ''
+      const tools = (['play', 'all', 'compare'] as Tool[]).filter(t => toolOk(p, v.id, t))
+      const leaf = (x?: State) => {
+        const id = x?.id ?? '', on = lit === id, note = x?.about?.[v.id]
+        return `<button data-act="pvs:${esc(p.id)}:${v.id}:${esc(id)}" aria-current="${on}" class="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left ${on ? ON : ROWC}">${dot(p, v.id, x, on)}<span class="min-w-0 flex-1"><span class="flex items-center gap-1.5 leading-4 ${on ? 'font-medium text-zinc-900 dark:text-white' : ''}"><span dir="auto" class="truncate">${esc(x?.name ?? 'At rest')}</span>${on && tool === 'play' ? ic('play', 'size-3 text-sky-500') : ''}</span>${note && x ? `<span dir="auto" class="mt-0.5 block text-[10px] leading-[14px] ${noteCls(p, v.id, x)}">${esc(note)}</span>` : ''}</span></button>`
+      }
+      if (sts.length || tools.length) here = `<div class="mt-3 border-t border-black/[.06] pt-2 dark:border-white/[.07]">
+          <div class="flex items-center gap-1 px-1.5 pb-1 text-[10px] font-medium text-zinc-400"><b class="text-zinc-500">${v.id}</b><span dir="auto" class="truncate">${esc(v.name)}</span><span class="ml-auto">${sts.length ? `${sts.length} state${sts.length === 1 ? '' : 's'}` : ''}</span></div>
+          ${sts.length ? `<div>${leaf()}${sts.map(leaf).join('')}</div>` : ''}
+          ${tools.length ? `<div class="flex flex-wrap gap-1 px-1 pt-1.5">${tools.map(t => `<button data-act="tool:${esc(p.id)}:${v.id}:${t}" aria-pressed="${tool === t}" title="${TOOLS[t].hint}${tool === t ? ' · click to stop' : ''}" class="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] ${tool === t ? 'bg-sky-500/15 font-medium text-sky-800 dark:text-sky-200' : 'bg-zinc-900/[.04] text-zinc-600 hover:bg-zinc-900/[.08] dark:bg-white/[.06] dark:text-zinc-300 dark:hover:bg-white/10'}">${ic(TOOLS[t].icon, 'size-3')}${TOOLS[t].name}${t === 'compare' ? `<span class="text-zinc-400">${otherOf(p, v.id)}</span>` : ''}</button>`).join('')}</div>` : ''}
         </div>`
-      // Claude just moved the work here: where from, and a way to put it back.
-      const moved = mv ? `<div class="flex items-center gap-2 border-t border-black/[.06] bg-amber-500/[.07] px-2.5 py-1.5 text-xs dark:border-white/10"><span class="text-amber-600">${ic('from', 'size-3.5')}</span><span class="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-300" title="Claude moved the work here from ${esc(mv.p.title)} ${mv.v.id}">Moved from <b class="font-semibold">${mv.v.id}</b> · ${bd(mv.v.name)}${mv.p !== w.p ? ` <span class="text-zinc-400">in ${bd(mv.p.title)}</span>` : ''}</span><button data-act="work:undo" class="h-6 shrink-0 rounded-md px-2 font-medium text-zinc-900 hover:bg-zinc-900/[.06] dark:text-white dark:hover:bg-white/10">Undo</button></div>` : ''
-      // Each part folds on its own and all start folded: at rest the card is its header and one
-      // line per part, with a count.
-      const sec = (id: string, icon: string, name: string, n: number, body: string) => `<div><button data-act="sec:${id}" aria-expanded="${st.secs.has(id)}" class="flex h-8 w-full items-center gap-2 rounded-lg px-1 text-left text-zinc-600 hover:bg-zinc-900/[.04] hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/[.06] dark:hover:text-white">${ic(icon, 'size-4 text-zinc-400')}<span class="flex-1">${name}</span><span class="text-xs tabular-nums text-zinc-400">${n}</span>${ic('chev', `size-3.5 text-zinc-400 ${st.secs.has(id) ? 'rotate-180' : ''}`)}</button>${st.secs.has(id) ? `<div class="pb-1">${body}</div>` : ''}</div>`
-      const others = w.p.variants.filter(x => x !== w.v)
-      const panel = !open ? '' : `<div class="border-t border-emerald-500/15 px-2 py-1.5">
-          ${asks.length ? sec('asks', 'clock', 'What you asked for', asks.length, `<div class="ml-1 max-h-40 overflow-y-auto overscroll-contain py-1 pl-[7px] pr-1 ${asks.length > 4 ? '[mask-image:linear-gradient(to_bottom,#000_calc(100%_-_24px),transparent)]' : ''}"><ol class="border-l border-black/[.08] dark:border-white/10">${asks.map((a, i) => `<li class="relative py-1 pl-3.5"><span class="absolute -left-[4px] top-[9px] size-[7px] rounded-full ring-2 ring-white dark:ring-zinc-950 ${i === 0 ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}"></span><p dir="auto" class="text-xs leading-4 ${i === 0 ? 'font-medium text-zinc-900 dark:text-white' : 'text-zinc-600 dark:text-zinc-400'}">${esc(a.text)}</p><p class="text-[11px] leading-4 text-zinc-400" data-ago="${Date.parse(a.at)}">${ago(Date.parse(a.at))}</p></li>`).join('')}</ol></div>`) : ''}
-          ${kids.length ? sec('kids', 'branch', `Built from ${w.v.id}`, kids.length, kids.map(k => `<button data-act="lobby:proto:${esc(k.id)}" class="flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left ${ROW}">${ic('branch', 'size-3.5 text-sky-500')}<span dir="auto" class="truncate">${esc(k.title)}</span>${pickChip(k)}<span class="ml-auto shrink-0 text-xs tabular-nums text-zinc-400">${k.variants.length}</span></button>`).join('')) : ''}
-          ${others.length ? sec('variants', 'grid', 'Other variants', others.length, `<div class="flex flex-wrap gap-1 px-1 pt-1">${others.map(x => `<button data-act="pv:${esc(w.p.id)}:${x.id}" title="${esc(x.name)}" class="grid size-8 place-items-center rounded-lg border border-black/[.08] text-xs font-semibold text-zinc-400 hover:border-black/20 hover:text-zinc-900 dark:border-white/10 dark:hover:border-white/25 dark:hover:text-white">${x.id}</button>`).join('')}</div>
-            <button data-act="only" role="switch" aria-checked="${st.only}" class="mt-1.5 flex h-8 w-full items-center gap-2 rounded-lg px-1 text-left text-xs text-zinc-600 hover:bg-zinc-900/[.04] dark:text-zinc-300 dark:hover:bg-white/[.06]"><span class="flex-1">Hide others in the tabs and tree</span>${toggle(st.only)}</button>`) : ''}
-          ${before.length ? sec('before', 'from', 'Before', before.length, before.map(({ r, x }) => `<button data-act="work:set:${esc(r.proto)}:${esc(r.variant)}" title="Work on this again" class="flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left ${ROW}">${ic('from', 'size-3.5 shrink-0 text-zinc-400')}<b class="font-semibold">${x!.v.id}</b><span dir="auto" class="max-w-[60%] shrink-0 truncate">${esc(x!.v.name)}</span>${x!.p !== w.p ? `<span dir="auto" class="min-w-0 truncate text-xs text-zinc-400">${esc(x!.p.title)}</span>` : ''}${asksOf(r).length ? `<span class="ml-auto shrink-0 text-xs tabular-nums text-zinc-400">${asksOf(r).length}</span>` : ''}</button>`).join('')) : ''}
-        </div>`
-      return `<div class="mb-2 overflow-hidden rounded-xl border ${here ? 'border-emerald-500/50 bg-emerald-500/[.03]' : 'border-black/[.08] hover:border-black/20 dark:border-white/10 dark:hover:border-white/25'}">${head}${moved}${panel}</div>`
     }
 
     const initial = esc((session.name.trim()[0] || 'P').toUpperCase())
-    const gone = archived()
     return `<div class="flex h-12 shrink-0 items-center gap-2 pl-3 pr-1.5">
-        <button data-act="lobby:session" class="flex min-w-0 items-center gap-2"><span class="grid size-5 shrink-0 place-items-center rounded bg-zinc-900 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-900">${initial}</span><span dir="auto" class="truncate font-semibold">${esc(session.name)}</span></button>
+        <button data-act="lobby:session" title="Overview of the session" class="flex min-w-0 items-center gap-2"><span class="grid size-5 shrink-0 place-items-center rounded bg-zinc-900 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-900">${initial}</span><span dir="auto" class="truncate font-semibold">${esc(session.name)}</span></button>
         <button data-act="${inDrawer ? 'drawer:0' : 'side:0'}" class="${IB} ml-auto shrink-0" title="${inDrawer ? 'Close' : 'Hide sidebar · ⌘\\'}" aria-label="${inDrawer ? 'Close' : 'Hide sidebar'}">${ic(inDrawer ? 'x' : 'sidebar')}</button>
       </div>
-      <nav data-tree class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" aria-label="Prototypes">
-        ${workCard()}
-        <div class="${cardOpen ? 'opacity-50 transition-opacity hover:opacity-100 focus-within:opacity-100' : ''}">
-        <button data-act="lobby:session" aria-current="${view === 'session'}" class="flex h-9 w-full items-center gap-2.5 rounded-lg px-2 ${view === 'session' ? ON : ROW}">${ic('home')}Overview</button>
-        ${line.length ? `<div class="pt-3"></div>${path}${node(p!)}
-          <div class="mt-3 border-t border-black/[.06] pt-2 dark:border-white/10"><button data-act="others" aria-expanded="${st.others}" class="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-xs ${ROW}">${ic(st.others ? 'chev' : 'right', 'size-3.5')}Other prototypes<span class="ml-auto tabular-nums">${others.length}</span></button>${st.others ? others.map(node).join('') : ''}</div>`
-          : `<div class="px-2 pb-1 pt-3 text-[11px] font-medium text-zinc-400">Prototypes</div>${active().filter(isRoot).map(node).join('') || '<p class="px-2 py-1 text-xs text-zinc-400">None yet</p>'}`}
-        ${gone.length ? `<button data-act="archived" class="mt-2 flex h-9 w-full items-center gap-2 rounded-lg px-2 text-xs text-zinc-400 hover:bg-zinc-900/[.03] hover:text-zinc-600 dark:hover:bg-white/5 dark:hover:text-zinc-200">${ic(st.archived ? 'chev' : 'right', 'size-3')}Archived<span class="ml-auto tabular-nums">${gone.length}</span></button>${st.archived ? gone.map(q => `<button data-act="proto:${esc(q.id)}" class="flex h-8 w-full items-center gap-2 rounded-lg pl-7 pr-2 text-left text-zinc-400 hover:bg-zinc-900/[.03] dark:hover:bg-white/5"><span class="truncate line-through decoration-zinc-300">${esc(q.title)}</span><span class="ml-auto text-xs tabular-nums">${q.variants.length}</span></button>`).join('') : ''}` : ''}
-        </div>
+      ${workStrip()}
+      <nav data-tree data-k="tree" class="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-black/[.06] px-2 py-1.5 text-[12px] dark:border-white/[.07]" aria-label="Prototypes">
+        ${cols.slice(0, at).map(lineOf).join('')}${box}${cols.slice(at + 2).map((c, j) => lineOf(c, at + 2 + j)).join('')}
+        ${here}
       </nav>
-      <div class="flex h-12 shrink-0 items-center gap-1 border-t border-black/[.07] pl-3 pr-1.5 dark:border-white/10">
-        <span class="flex min-w-0 items-center gap-2 truncate text-xs text-zinc-500">${pulse('size-1.5', st.live && !st.stopped)}${st.stopped ? 'Stopped' : !st.live ? 'Reconnecting…' : st.lastEdit ? `Live · edited <span data-ago="${st.lastEdit}">${ago(st.lastEdit)}</span>` : 'Live'}</span>
+      <div class="flex h-11 shrink-0 items-center gap-1 border-t border-black/[.07] pl-3 pr-1.5 dark:border-white/10">
+        <span class="flex min-w-0 items-center gap-2 truncate text-[11px] text-zinc-500">${pulse('size-1.5', st.live && !st.stopped)}${st.stopped ? 'Stopped' : !st.live ? 'Reconnecting…' : st.lastEdit ? `Live · edited <span data-ago="${st.lastEdit}">${ago(st.lastEdit)}</span>` : 'Live'}</span>
         <button data-act="theme:${st.dark ? 'light' : 'dark'}" class="${IB} ml-auto shrink-0" aria-label="Switch to ${st.dark ? 'light' : 'dark'}">${ic(st.dark ? 'sun' : 'moon')}</button>
+      </div>`
+  }
+
+  // The variant your requests change, in words. On it, it folds out what you asked for; anywhere
+  // else, it says so and offers the way back. When Claude just moved it, it says from where.
+  function workStrip() {
+    const w = workOf()
+    if (!w) return ''
+    const here = atWork()
+    const asks = asksOf(session.work!).slice().reverse()
+    const mv = st.moved && refOk(st.moved)
+    const picked = (t: string) => /^Picked [A-Z]{1,2}$/.test(t.trim())
+    const n = asks.filter(a => !picked(a.text)).length
+    return `<div class="mx-2 mb-2 rounded-xl bg-zinc-900/[.04] p-2 text-[12px] dark:bg-white/[.05]">
+        <button data-act="work:go" ${here ? 'aria-current="true"' : 'title="Go to it · W"'} class="flex w-full min-w-0 items-center gap-2.5 text-left">
+          <span class="grid size-8 shrink-0 place-items-center rounded-lg bg-emerald-500/15 text-[12px] font-semibold text-emerald-700 dark:text-emerald-300">${w.v.id}</span>
+          <span class="min-w-0 flex-1 leading-tight"><span class="flex items-center gap-1.5 text-[10px] text-zinc-500">${here ? 'Your requests change this design' : 'Your requests change'}${editing(w.p.id, w.v.id) ? `<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">${pulse('size-1.5')}editing</span>` : ''}</span>
+            <span class="mt-0.5 flex min-w-0 items-center gap-1 font-semibold"><span dir="auto" class="min-w-0 truncate">${esc(w.p.title)}</span><span class="shrink-0 font-normal text-zinc-400">·</span><span class="shrink-0">${w.v.id}</span><span dir="auto" class="min-w-0 truncate">${esc(w.v.name)}</span></span></span>
+        </button>
+        ${here ? '' : `<button data-act="work:go" class="mt-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-white text-[11px] font-medium shadow-sm ring-1 ring-black/10 hover:bg-zinc-50 dark:bg-zinc-800 dark:ring-white/10 dark:hover:bg-zinc-700">Go to it<span class="font-normal text-zinc-400">· or keep looking here</span><kbd class="ml-1 hidden rounded px-1 font-sans text-[10px] font-normal text-zinc-400 ring-1 ring-inset ring-black/10 [@media(hover:hover)]:inline dark:ring-white/15">W</kbd></button>`}
+        ${mv ? `<div class="mt-2 flex items-center gap-1.5 rounded-lg bg-amber-500/[.08] px-2 py-1 text-[11px]"><span class="text-amber-600">${ic('from', 'size-3.5')}</span><span class="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-300">Moved here from <b class="font-semibold">${mv.v.id}</b> · ${bd(mv.v.name)}${mv.p !== w.p ? ` <span class="text-zinc-400">in ${bd(mv.p.title)}</span>` : ''}</span><button data-act="work:undo" class="h-6 shrink-0 rounded-md px-1.5 font-medium text-zinc-900 hover:bg-zinc-900/[.06] dark:text-white dark:hover:bg-white/10">Undo</button></div>` : ''}
+        ${asks.length ? `<button data-act="asks" aria-expanded="${st.asks}" class="mt-1.5 flex h-7 w-full items-center gap-1.5 rounded-md px-1 text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-white">${ic('clock', 'size-3.5')}${n} change${n === 1 ? '' : 's'} you asked for${ic('chev', `ml-auto size-3.5 transition-transform ${st.asks ? 'rotate-180' : ''}`)}</button>
+          ${st.asks ? `<ol class="max-h-48 space-y-1.5 overflow-y-auto overscroll-contain px-1 pb-1 pt-1">${asks.map(a => { const pk = picked(a.text), t = Date.parse(a.at); return `<li class="flex gap-2 text-[11px] leading-[15px]"><span class="mt-px grid size-3.5 shrink-0 place-items-center rounded-full ${pk ? 'bg-emerald-500 text-white' : 'bg-zinc-900/[.08] text-zinc-500 dark:bg-white/10 dark:text-zinc-400'}">${ic('check', 'size-2.5')}</span><span dir="auto" class="min-w-0 flex-1 ${pk ? 'text-emerald-700 dark:text-emerald-300' : 'text-zinc-700 dark:text-zinc-300'}">${pk ? `You picked ${esc(a.text.trim().slice(7))}` : esc(a.text)}</span>${t ? `<span class="shrink-0 text-[10px] text-zinc-400" data-ago="${t}">${ago(t)}</span>` : ''}</li>` }).join('')}</ol>` : ''}` : ''}
       </div>`
   }
 
@@ -1263,26 +1297,27 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       case 'lobby': return arg === 'session' ? go({ view: 'session' }) : go({ view: 'proto', proto: arg2 || p!.id })
       case 'proto': return openProto(arg)
       case 'pv': return go({ view: 'variant', proto: arg, variant: arg2 })
+      // In the columns: a variant (kept open when something was built from it) or a prototype.
+      case 'mv': { const q = byId(arg); keepOpen = !!q && kidsOf(q, arg2).length > 0; return go(q ? keepIn(q, arg2) : { view: 'variant', proto: arg, variant: arg2 }) }
+      case 'mp': keepOpen = true; return go({ view: 'proto', proto: arg })
+      case 'line': st.pairAt = Number(arg); recenter = true; return render()
+      case 'drill': st.drill = Number(arg); recenter = true; return render()
+      case 'asks': st.asks = !st.asks; return render()
       case 'variant': return go(keepIn(p!, arg))
       case 'step': return step(Number(arg))
-      case 'open': st.open = st.open === arg ? null : arg; st.copied = false; if (arg === 'session') refreshStatus(); return render()
+      case 'open': st.open = st.open === arg ? null : arg; st.copied = false; recenter = true; if (arg === 'session') refreshStatus(); return render()
       case 'archived': st.archived = !st.archived; return render()
-      case 'others': st.others = !st.others; return render()
-      case 'sec': st.secs.has(arg) ? st.secs.delete(arg) : st.secs.add(arg); return render()
-      case 'only': st.only = !st.only; localStorage.setItem(`proto-only-${session.id}`, st.only ? '1' : '0'); return render()
       case 'work': {
         const w = workOf()
         if (arg === 'go') return w && go({ view: 'variant', proto: w.p.id, variant: w.v.id })
         // The page's own moves come back through session.json; they aren't Claude's to undo.
         if (arg === 'undo') { const m = st.moved; st.moved = null; clearTimeout(movedTimer); render(); if (m) { selfMove = true; post('work', { ...m, undo: true }) } return }
-        if (arg === 'set') { selfMove = true; post('work', { proto: arg2, variant: arg3 }); return go({ view: 'variant', proto: arg2, variant: arg3 }) }
         return
       }
-      case 'fold': st.tree.set(arg, !isOpen(arg)); return render()
       // Wide windows dock the sidebar (remembered); narrower ones open it as a drawer.
-      case 'side': if (!wide()) { st.drawer = arg === '1'; return render() } st.side = arg === '1'; localStorage.setItem('proto-side', st.side ? '1' : '0'); return render()
+      case 'side': recenter = true; if (!wide()) { st.drawer = arg === '1'; return render() } st.side = arg === '1'; localStorage.setItem('proto-side', st.side ? '1' : '0'); return render()
       case 'drawer': st.drawer = arg === '1'; return render()
-      case 'menu': st.menu = arg as typeof st.menu; return render()
+      case 'menu': st.menu = arg as typeof st.menu; recenter = true; return render()
       case 'stack': st.stack = arg === '1'; localStorage.setItem('proto-lobby', st.stack ? 'stack' : 'grid'); return show(true)
       case 'scale': st.scale = Number(arg); render(); return fit()
       case 'scalestep': st.scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(((st.scale || 50) + Number(arg)) / 5) * 5)); render(); return fit()
@@ -1320,25 +1355,10 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       syncScale(input)
       return fit()
     }
-    if (!input.matches('[data-filter]')) return
-    const list = input.closest('[data-pop]')!.querySelector('[data-vlist]')!, needle = input.value.toLowerCase()
-    let any = false
-    for (const el of list.querySelectorAll<HTMLElement>('[data-q]')) { el.hidden = !el.dataset.q!.toLowerCase().includes(needle); any ||= !el.hidden }
-    list.querySelector<HTMLElement>('[data-empty]')!.hidden = any
   })
 
   addEventListener('keydown', e => {
     const t = e.target as Element
-    const pop = t.closest?.('[data-pop]')
-    if (pop && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || (e.key === 'Enter' && t.matches('[data-filter]')))) {
-      const rows = [...pop.querySelectorAll<HTMLElement>('[data-vlist] [data-q]:not([hidden]) button')]
-      if (!rows.length) return
-      e.preventDefault()
-      if (e.key === 'Enter') return rows[0].click()
-      const i = rows.indexOf(document.activeElement as HTMLElement)
-      const next = rows[e.key === 'ArrowDown' ? Math.min(rows.length - 1, i + 1) : i - 1]
-      return next ? next.focus() : pop.querySelector<HTMLElement>('[data-filter]')?.focus()
-    }
     if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); return act('side', (wide() ? st.side : st.drawer) ? '0' : '1', '') }
     if (e.key === 'Escape') {
       if (tryEsc()) return
@@ -1439,7 +1459,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const commentBtn = () => {
     if (!commentHost()) return ''
     const on = comments.counts().picking
-    return `<button data-act="comment:toggle" data-shoot="comment" aria-pressed="${on}" title="Comment on the design · C (${mac ? '⌥' : 'Alt'}-click comments on one thing)" class="hidden h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium sm:inline-flex ${on ? 'bg-proto-primary text-proto-primary-fg hover:bg-proto-primary-hover' : 'text-zinc-600 ring-1 ring-inset ring-black/10 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-300 dark:ring-white/15 dark:hover:bg-white/10 dark:hover:text-white'}">${ic('comment')}${on ? 'Click to comment' : 'Comment'}<kbd class="rounded px-1 font-sans text-[11px] ${on ? 'bg-white/20' : 'text-zinc-400 ring-1 ring-inset ring-black/10 dark:ring-white/15'}">${on ? 'Esc' : 'C'}</kbd></button>`
+    // At rest an icon; while you are picking what to comment on, it says so, and how to stop.
+    return `<button data-act="comment:toggle" data-shoot="comment" aria-pressed="${on}" aria-label="Comment" title="${on ? 'Stop commenting · Esc' : `Comment on the design · C (${mac ? '⌥' : 'Alt'}-click comments on one thing)`}" class="hidden h-9 min-w-9 items-center justify-center gap-1.5 rounded-lg text-xs font-medium sm:inline-flex ${on ? 'bg-proto-primary px-2.5 text-proto-primary-fg hover:bg-proto-primary-hover' : 'text-zinc-600 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white'}">${ic('comment')}${on ? 'Click to comment<kbd class="rounded bg-white/20 px-1 font-sans text-[11px]">Esc</kbd>' : ''}</button>`
   }
   let seenInbox: Inbox | undefined
   /** Tells the comment layer where the page is and what the server says; repaints the chrome that shows counts. */
@@ -1723,7 +1744,6 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       const was = session.work
       session = next
       if (!same(was, next.work)) {
-        st.secs.clear()
         if (was && next.work && !selfMove && refOk(was)) {
           st.moved = { proto: was.proto, variant: was.variant }
           clearTimeout(movedTimer)

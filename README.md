@@ -67,11 +67,11 @@ Keep going in the same session and everything lands in the same app, under the s
 
 ### Every variant is a real page
 
-Breadcrumbs go session › prototype › variant. Each name opens an overview, each chevron jumps anywhere, and the tabs or the arrow keys step through variants. On a phone the tabs become one pill at the bottom of the stage: drag along it and the designs slide past under your finger, one phone apart at the phone scale you set, or tap it for a sheet of every variant. The phone's bar keeps three things: back to what the prototype was built from, its title (tap for the other prototypes) and the session behind ⋯. The phone scale sits in the pill, with its sizes and a slider growing out of the button. A sidebar shows the same thing as a tree. A prototype built from part of another variant (its hero, then that hero's CTA) is a row under the variant it came from; open it and the sidebar shows only that branch, with what it was built from listed one line per level, so five levels deep reads as easily as one. Hide the sidebar with ⌘\ for breadcrumbs alone.
+The bar holds one switcher: the prototype and variant you're on, with the path that led there under it. Open it and the whole session lays out as columns, Finder style: prototypes, their variants, what was built from a variant, and so on, with the path you're on lit and a preview of the selected row at the end. ‹ and › (or the arrow keys) step through the variants. On a phone the stepper becomes one pill at the bottom of the stage: drag along it and the designs slide past under your finger, one phone apart at the phone scale you set, or tap it for a sheet of every variant. The phone's bar keeps three things: back to what the prototype was built from, its title (tap for the same columns, one at a time, as a sheet you drill into) and the session behind ⋯. The phone scale sits in the pill, with its sizes and a slider growing out of the button. The sidebar shows the same path, compactly: each level above where you are is one line (tap it to open that level), and the level you're on opens as two columns side by side, so five levels deep reads as easily as one. Hide the sidebar with ⌘\.
 
 ### Working on one variant
 
-Once you pick a direction and keep asking for changes, that variant is pinned at the top of the sidebar. From anywhere, one click or W brings you back. On it, the card lists what you asked for, what was built from it, its sibling variants (Hide others takes them out of the tabs and the tree) and what you worked on before. When Claude moves on to another variant, the card follows and offers Undo.
+Once you pick a direction and keep asking for changes, a strip at the top of the sidebar says so in words: "Your requests change this design", and which one. Its row in the columns wears a green pin. Look somewhere else and the strip offers Go to it (or W), or you keep looking where you are. It folds out into the changes you asked for, ticked, with times, and your pick shows there in green. When Claude moves on to another variant, the strip follows and offers Undo.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/menu-dark.png">
@@ -95,7 +95,7 @@ The prototype page shows every variant as a live thumbnail, or one after another
 
 ### See what's behind the clicks
 
-Menus, drawers and steps inside a variant are listed under it in the sidebar, each with a line on what it is or what this variant changes (in amber). Click one and the variant opens in that state. The ⋯ on a variant's row has three more ways in: Autoplay clicks through every state for you, All states shows them on one page, and Compare puts two variants side by side in the same state, with what one adds outlined.
+Menus, drawers and steps inside a variant are listed under its columns in the sidebar, each with a line on what it is or what this variant changes (in amber). Click one and the variant opens in that state. Beside them are three more ways in: Autoplay clicks through every state for you, All states shows them on one page, and Compare puts two variants side by side in the same state, with what one adds outlined.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/states-dark.png">
