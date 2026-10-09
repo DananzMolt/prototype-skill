@@ -83,9 +83,18 @@ function ReadCard({ row, box }: { row: { item: Item; state: ReturnType<typeof pr
   const [at, setAt] = useState<{ left: number; top: number } | null>(null)
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); act.close() } }
+    // A press anywhere else puts it away (the press still does what it was for), and so does
+    // a minute of nobody touching it. The list and the pins open their own.
+    const away = (e: PointerEvent) => {
+      const t = e.target as Element
+      if (el.current?.contains(t) || t.closest?.('[data-cbody], [role=dialog], [data-inspect-ui]') || t.closest?.('button[aria-label^="Comment "]')) return
+      act.close()
+    }
+    const timer = window.setTimeout(act.close, 60_000)
     document.addEventListener('keydown', k, true)
-    return () => document.removeEventListener('keydown', k, true)
-  }, [act])
+    document.addEventListener('pointerdown', away, true)
+    return () => { document.removeEventListener('keydown', k, true); document.removeEventListener('pointerdown', away, true); clearTimeout(timer) }
+  }, [act, row.item.id])
   // Under the element and its outline; above it only when there is no room below.
   useLayoutEffect(() => {
     if (!box || !el.current) return
