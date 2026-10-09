@@ -1,7 +1,7 @@
 // End-to-end check of the skill on this machine: create a session app in a scratch project,
 // add two prototypes (one built from the other), screenshot and snapshot them, open a state
 // listed in meta.ts, then stop and delete the session. Run by .github/workflows/smoke.yml on Windows, Linux and macOS.
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { get } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -129,6 +129,49 @@ const size = `${head.readUInt32BE(16)}x${head.readUInt32BE(20)}`
 if (size !== '1206x2622') fail(`phone-A-screen.png is ${size}, not the 402x874 screen at 3x (1206x2622)`)
 if (!existsSync(join(shots, 'phone-A-vs-ref.png'))) fail('proto shoot --ref wrote no phone-A-vs-ref.png')
 if (pngs(shots).some(f => /^phone-A-(desktop|mobile)\.png$/.test(f))) fail('proto shoot --ref should write only the screen and the sheet')
+
+// Comments from the page: a batch with a screenshot goes in through the server, is taken by
+// `proto inbox` (a directory rename, which Windows can refuse), shown with its image on disk,
+// answered with `proto reply`, and the page's status then says what became of it. A listener
+// started first wakes up by itself when the next batch arrives.
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+const send = async comments => {
+  const res = await fetch(`${local}__proto/comments`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ comments, viewport: { w: 390, h: 844, phone: true }, theme: 'dark' }) })
+  const body = await res.json()
+  if (!res.ok) fail(`posting comments answered ${res.status}: ${JSON.stringify(body)}`)
+  return body
+}
+const sent = await send([
+  { route: 'hero/A', text: 'Make the price bigger', target: { selector: ':scope > div:nth-child(1)', shoot: 'open', tag: 'button', text: 'Open', rect: { x: 4, y: 8, w: 120, h: 40 } }, tags: [{ selector: ':scope > p', tag: 'p', text: 'Panel' }], images: [{ dataUrl: PNG, name: 'marked up' }] },
+  { route: 'home/B', text: 'Second one', point: { x: 10, y: 20 } },
+])
+if (!sent.sent || sent.inbox?.new !== 1) fail(`the batch was not queued: ${JSON.stringify(sent)}`)
+const got = proto(['inbox'])
+if (!/Make the price bigger/.test(got) || !/data-shoot=open/.test(got) || !/at 4,8 120x40/.test(got)) fail('proto inbox did not print the comment with its element and place')
+const image = (got.match(/image: (.+?)(?:  \(|$)/m) || [])[1]?.trim()
+if (!image || !existsSync(image)) fail(`the screenshot is not on disk at ${image}`)
+if (!/no new comments/.test(proto(['inbox']))) fail('a batch was handed out twice')
+const batch = (got.match(/^batch (\S+)/m) || [])[1]
+proto(['reply', `${batch}/1`, 'Price is now 48px', '--done', '--as', 'codex'])
+let state = await (await fetch(`${local}__proto/status`)).json()
+const c1 = state.inbox.batches.find(b => b.id === batch)?.comments.find(c => c.n === 1)
+if (!c1?.done || c1.reply?.text !== 'Price is now 48px' || c1.reply.by !== 'codex') fail(`the reply did not reach the page: ${JSON.stringify(c1)}`)
+proto(['reply', batch, 'All handled', '--done'])
+state = await (await fetch(`${local}__proto/status`)).json()
+if (state.inbox.batches.find(b => b.id === batch)?.state !== 'done') fail('the batch is not done after replying to all of it')
+proto(['reply', 'nope/1', 'x'], { ok: false })
+if ((await fetch(`${local}__proto/comments`, { method: 'POST', body: '{"comments":[{"route":"BAD","text":"x"}]}' })).status !== 400) fail('a comment with a bad route was accepted')
+// Listening: --wait exits, printing the batch, once another one lands.
+const waiter = spawn(process.execPath, [join(skill, 'scripts', 'proto.mjs'), 'inbox', '--wait', '--project', project, '--session', 'smoke'], { stdio: ['ignore', 'pipe', 'pipe'] })
+let heard = ''
+waiter.stdout.on('data', d => { heard += d })
+const exited = new Promise(ok => waiter.on('exit', ok))
+for (let i = 0; i < 40 && !/listening for comments/.test(heard); i++) await new Promise(r => setTimeout(r, 250))
+if (!/listening for comments/.test(heard)) { waiter.kill(); fail('proto inbox --wait never said it was listening') }
+await send([{ route: 'hero/A', text: 'Woke you up', point: { x: 1, y: 1 } }])
+const code = await Promise.race([exited, new Promise(r => setTimeout(() => r('timeout'), 20_000))])
+if (code === 'timeout') { waiter.kill(); fail('proto inbox --wait did not wake for a new batch') }
+if (!/Woke you up/.test(heard)) fail(`the listener exited without the batch: ${heard}`)
 
 // A right-to-left variant: physical sides are listed, while sides chosen per direction,
 // centring and logical sides are not.

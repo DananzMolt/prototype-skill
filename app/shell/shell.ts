@@ -1435,10 +1435,11 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const n = comments.counts().by.get(`${proto}/${variant}`) ?? 0
     return n ? `<span title="${n} open comment${n === 1 ? '' : 's'}" class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-proto-primary-soft px-1 text-[10px] font-semibold tabular-nums text-proto-primary-soft-fg">${n}</span>` : ''
   }
+  const mac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)
   const commentBtn = () => {
     if (!commentHost()) return ''
     const on = comments.counts().picking
-    return `<button data-act="comment:toggle" data-shoot="comment" aria-pressed="${on}" title="Comment on the design · C (⌥-click comments on one thing)" class="hidden h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium sm:inline-flex ${on ? 'bg-proto-primary text-proto-primary-fg hover:bg-proto-primary-hover' : 'text-zinc-600 ring-1 ring-inset ring-black/10 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-300 dark:ring-white/15 dark:hover:bg-white/10 dark:hover:text-white'}">${ic('comment')}${on ? 'Click to comment' : 'Comment'}<kbd class="rounded px-1 font-sans text-[11px] ${on ? 'bg-white/20' : 'text-zinc-400 ring-1 ring-inset ring-black/10 dark:ring-white/15'}">${on ? 'Esc' : 'C'}</kbd></button>`
+    return `<button data-act="comment:toggle" data-shoot="comment" aria-pressed="${on}" title="Comment on the design · C (${mac ? '⌥' : 'Alt'}-click comments on one thing)" class="hidden h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium sm:inline-flex ${on ? 'bg-proto-primary text-proto-primary-fg hover:bg-proto-primary-hover' : 'text-zinc-600 ring-1 ring-inset ring-black/10 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-300 dark:ring-white/15 dark:hover:bg-white/10 dark:hover:text-white'}">${ic('comment')}${on ? 'Click to comment' : 'Comment'}<kbd class="rounded px-1 font-sans text-[11px] ${on ? 'bg-white/20' : 'text-zinc-400 ring-1 ring-inset ring-black/10 dark:ring-white/15'}">${on ? 'Esc' : 'C'}</kbd></button>`
   }
   let seenInbox: Inbox | undefined
   /** Tells the comment layer where the page is and what the server says; repaints the chrome that shows counts. */
