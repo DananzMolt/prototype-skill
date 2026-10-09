@@ -1328,6 +1328,14 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       if (st.place.view === 'variant' && st.place.tool) return go(untool(st.place))
     }
     if (e.metaKey || e.ctrlKey || e.altKey || st.sheet || t.closest?.(INTERACTIVE)) return
+    // Esc on a variant goes up to its prototype's variants, unless the design used it first (a
+    // design closing its own menu calls preventDefault). Its handlers may run after this one,
+    // so the check waits a tick.
+    if (e.key === 'Escape' && st.place.view === 'variant') {
+      const from = hashOf(st.place)
+      setTimeout(() => { if (!e.defaultPrevented && st.place.view === 'variant' && hashOf(st.place) === from) go({ view: 'proto', proto: st.place.proto }) })
+      return
+    }
     if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && st.place.view === 'variant') { e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1) }
     else if (e.key === 'f' && st.place.view === 'variant') act(st.focus ? 'unfocus' : 'focus', '', '')
     else if (e.key === 'w' && workOf()) act('work', 'go', '')

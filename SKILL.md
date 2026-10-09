@@ -178,6 +178,8 @@ so the user sees them land:
   window, so drawers and sheets can use it.
 - Make it real: realistic content (never lorem ipsum), working hover, focus, open and close,
   typing, empty and loading states where they matter. Local state is fine.
+- Esc on a variant page goes back to the prototype's variants. A design that closes its own
+  menu or dialog with Esc calls `e.preventDefault()` on that keydown, and the page stays.
 - Responsive from 360px up, touch targets 36px (44px for primary actions), nothing hover-only.
 - The shell's Light/Dark switch sets `.dark` on `<html>`. When the project has a dark mode,
   give the variants `dark:` classes; when it doesn't, leave them light (the shell around them

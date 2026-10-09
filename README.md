@@ -108,7 +108,7 @@ A variant can say what a reviewer needs to get through it, and the page shows it
 
 ### Focus mode
 
-Press `F` and the chrome disappears. A small dock stays at the bottom and grows as your pointer gets close; edge arrows appear near the sides.
+Press `F` and the chrome disappears (`Esc` brings it back, and on a variant page goes up to all its variants). A small dock stays at the bottom and grows as your pointer gets close; edge arrows appear near the sides.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/focus-dark.png">
