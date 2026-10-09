@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { useCtx } from './ctx'
 import { progress, useStore, type Said } from './store'
 import type { CState, Item } from './types'
-import { Body, Icon, Listening, PinDot, Reply, since, Working } from './ui'
+import { Body, Icon, Listening, MOD, PinDot, Reply, since, Working } from './ui'
 
 export function useRows() {
   const { store, act } = useCtx()
@@ -128,7 +128,7 @@ export function SendButton({ className = '' }: { className?: string }) {
   const { act } = useCtx()
   const { s, drafts } = useRows()
   return (
-    <button data-shoot="send" onClick={act.send} disabled={!drafts || s.sending} className={`inline-flex h-12 items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:bg-zinc-900/[.06] disabled:text-zinc-400 dark:disabled:bg-white/[.08] dark:disabled:text-zinc-500 ${drafts && !s.sending ? 'bg-proto-primary text-proto-primary-fg hover:bg-proto-primary-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-proto-primary-ring' : ''} ${className}`}>
+    <button data-shoot="send" onClick={act.send} title={`${MOD} Enter`} disabled={!drafts || s.sending} className={`inline-flex h-12 items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:bg-zinc-900/[.06] disabled:text-zinc-400 dark:disabled:bg-white/[.08] dark:disabled:text-zinc-500 ${drafts && !s.sending ? 'bg-proto-primary text-proto-primary-fg hover:bg-proto-primary-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-proto-primary-ring' : ''} ${className}`}>
       <Icon name="send" className="size-4" />{s.sending ? 'Sending…' : drafts ? `Send ${drafts} to Claude` : 'Nothing to send'}
     </button>
   )

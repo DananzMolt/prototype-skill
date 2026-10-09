@@ -112,7 +112,7 @@ Press `C` (or the Comment button, or ⌥-click one thing) and the design stops r
 
 Name things in a design with `data-shoot="..."` and comments and the `@` menu call them by that name.
 
-The list sits in the side panel (a bottom sheet on a phone), in three sections: **Ready to send**, **With Claude** and **Done**. Send puts every draft in front of the Claude (or Codex) session that runs the prototype, with the element, its place on the design and the screenshots. As the agent answers, each comment moves to Done with its reply, which opens as a chat message with the agent's mark and has a Show on design link that outlines the element and opens a small card under it. On a phone, the first tap inspects and a second tap comments.
+The list sits in the side panel (a bottom sheet on a phone), in three sections: **Ready to send**, **With Claude** and **Done**. Send puts every draft in front of the Claude (or Codex) session that runs the prototype, with the element, its place on the design and the screenshots. `⌘ Enter` (`Ctrl Enter` on Windows) does the same from anywhere on the page, and in a comment it adds that comment and sends. As the agent answers, each comment moves to Done with its reply, which opens as a chat message with the agent's mark and has a Show on design link that outlines the element and opens a small card under it. On a phone, the first tap inspects and a second tap comments.
 
 ### Focus mode
 

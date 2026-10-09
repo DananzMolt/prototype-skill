@@ -1360,6 +1360,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   addEventListener('keydown', e => {
     const t = e.target as Element
     if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); return act('side', (wide() ? st.side : st.drawer) ? '0' : '1', '') }
+    // Cmd or Ctrl Enter sends what's ready to Claude, from anywhere but a field of the design's own.
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.defaultPrevented && comments.counts().drafts && !t.closest?.('input, textarea, select, [contenteditable]')) { e.preventDefault(); void comments.act.send(); return }
     if (e.key === 'Escape') {
       if (tryEsc()) return
       if (comments.escape()) return

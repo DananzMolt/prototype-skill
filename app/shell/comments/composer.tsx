@@ -174,7 +174,7 @@ export function Composer({ target, n, initial, place, sheet, tagging, editing, i
       if (e.key === 'ArrowUp') { e.preventDefault(); setPeeking(true); setRow(a => (a - 1 + count) % count); return }
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (row === 0) { setMenu(false); act.tagPick() } else insert(flat[row - 1].t); return }
     }
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit() }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); void act.send() }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (menu) setMenu(false); else act.close() }
   }
   const refocus = () => requestAnimationFrame(() => ed.current?.focus())
@@ -254,7 +254,7 @@ export function Composer({ target, n, initial, place, sheet, tagging, editing, i
           {editing && <button onClick={() => id && act.remove(id)} title="Delete" aria-label="Delete comment" className={`${IB} h-8 min-w-8 px-1.5 hover:text-rose-600`}><Icon name="trash" /></button>}
           <span className="ms-auto" />
           <button onClick={() => act.cancel()} className="h-8 rounded-lg px-2.5 text-xs font-medium text-zinc-500 hover:bg-zinc-900/5 dark:hover:bg-white/10">Cancel</button>
-          <button onClick={submit} disabled={empty && !tags.length} title={`${MOD} Enter`} className={`inline-flex h-8 items-center gap-1 rounded-lg pl-2 pr-3 text-xs font-semibold disabled:opacity-40 ${PRIMARY}`}><Icon name={editing ? 'check' : 'plus'} className="size-3.5" />{editing ? 'Save' : 'Add'}</button>
+          <button onClick={submit} disabled={empty && !tags.length} title={`Add, to send with the rest · ${MOD} Enter adds and sends to Claude`} className={`inline-flex h-8 items-center gap-1 rounded-lg pl-2 pr-3 text-xs font-semibold disabled:opacity-40 ${PRIMARY}`}><Icon name={editing ? 'check' : 'plus'} className="size-3.5" />{editing ? 'Save' : 'Add'}</button>
         </div>
       </div>
       {marking && <ShotEditor src={marking} onCancel={() => { setMarking(null); refocus() }} onDone={url => { setShot(url); setMarking(null); refocus() }} />}
