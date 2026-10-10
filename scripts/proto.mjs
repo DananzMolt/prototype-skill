@@ -49,11 +49,14 @@ const argv = process.argv.slice(2)
 const cmd = argv[0]
 const flags = {}
 const args = []
+// Flags that are only on or off never take the next word, so `add --from-picks mix` or
+// `pick --off hero` still reads the slug as the slug.
+const SWITCHES = new Set(['from-picks', 'off', 'done', 'wait', 'focus'])
 for (let i = 1; i < argv.length; i++) {
   const a = argv[i]
   if (!a.startsWith('--')) { args.push(a); continue }
   const [k, v] = a.slice(2).split(/=(.*)/s)
-  flags[k] = v !== undefined ? v : argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : true
+  flags[k] = v !== undefined ? v : !SWITCHES.has(k) && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : true
 }
 
 const die = msg => { console.error(`proto: ${msg}`); process.exit(1) }
