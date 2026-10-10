@@ -294,12 +294,17 @@ user makes one (next section).
 
 ## When the user chooses
 
-As soon as the user chooses a variant ("go with A", "A it is", "build B", "let's move forward
-with C"), run `proto pick <slug> <letter>` before anything else, without asking. If they don't
+The user chooses in chat ("go with A", "A it is", "build B", "let's move forward with C") or in
+the page, where each variant has Pick (the check button in the bar, or P; on a phone, the top of
+the variant sheet). A pick made in the page is already marked when you hear of it, as a comment
+with `action: pick` (see Comments from the page): don't run `proto pick` again, reply to it.
+
+As soon as the user chooses in chat, run `proto pick <slug> <letter>` before anything else,
+without asking. If they don't
 name the prototype, it's the one you showed them last. The page then marks it (a check in the
 sidebar, the variant first and outlined in its overview, the rest faded but still there) and
 everything built from the prototype stays nested under it. Choosing again replaces the pick;
-"undo that" is `proto pick <slug> --off`. A pick also makes that variant the one being worked
+"undo that" is `proto pick <slug> --off` (in the page, Picked B undoes it). A pick also makes that variant the one being worked
 on (next section). Then do what they asked next, if anything.
 
 A pick is not an archive: archive is for directions the user drops, and a picked prototype is
@@ -348,8 +353,9 @@ leave it. `proto inbox` without `--wait` takes whatever is waiting now and tells
 something is listening.
 
 Each comment prints its route (`<slug>/<letter>[/<state>]`), the user's words, the element
-it is on (tag, text, `data-shoot` or selector, its box in CSS px from the variant's top left)
-and any elements it tags, and the absolute path of each screenshot attached to it. A comment
+it is on (tag, text, `data-shoot` or selector, its box in CSS px from the variant's top left,
+and where it is written: its file from the app's folder, line and component, as
+`src/protos/today/parts.tsx:30 (PriceCard)`; open it there) and any elements it tags, and the absolute path of each screenshot attached to it. A comment
 pinned to a spot with a long press (on a phone, where no element fit) prints `at:` the spot, in
 the same px, and `in:` the element under it: the change is about that spot, not the whole
 element. Read every screenshot. Then, per comment:
@@ -360,6 +366,16 @@ element. Read every screenshot. Then, per comment:
    puts its mark beside the reply instead of Claude's). The page shows it on the
    comment. A comment you can't act on gets a reply without `--done` saying why.
 3. When the batch is handled, listen again.
+
+**Decisions from the page** arrive in the same batches, as comments with an `action:` line and
+no element; the user's optional note follows a colon in the text.
+
+| `action:` | Already done | You |
+|---|---|---|
+| `pick` | marked, and it is the working variant | reply `--done` in a line, then do what the note asks |
+| `unpick` | the pick is off | reply `--done` |
+| `more` | nothing | new letters in the same prototype, named after it (`proto add <slug> --variants "D:…"`); reply with what you added |
+| `build` | nothing | `proto pick` it if it isn't the pick, then step 7; reply when it is in |
 
 ## 7. Only if asked: build it
 
@@ -394,7 +410,8 @@ Each module is roughly 4 to 30 KB and goes through your tool calls, so snap only
 | Something new ("now the pricing page") | `proto add <new slug> …` |
 | Variations of one variant ("B but with a map") | new letters in the same prototype, named after B |
 | A part of one variant, explored on its own ("B's hero, but better") | `proto add <new slug> --from <slug>/B …` |
-| A choice ("go with A", "build B") | `proto pick <slug> <letter>` first, then what they asked |
+| A choice in chat ("go with A", "build B") | `proto pick <slug> <letter>` first, then what they asked |
+| A pick, More like this or Build it from the page (`action:` in a batch) | the table under Comments from the page |
 | A change to the variant being worked on ("make the price bigger") | `proto ask "…"`, then edit it |
 | A change to another variant ("now D, same idea") | `proto work <slug>/<letter> --ask "…"`, then edit it |
 | To drop a direction or prototype | `proto archive <slug>` (still reachable under Archived) |

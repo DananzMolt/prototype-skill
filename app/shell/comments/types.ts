@@ -8,8 +8,10 @@ export type Box = { x: number; y: number; w: number; h: number }
  * across hot reloads while the structure does); `rect` is where it was, in CSS px from the
  * variant root's top left, which is what the agent is told. A comment pinned with a long press
  * has a `point` too, in the same px: the spot itself, with the element under it for context.
+ * `src` is where it is written, its file under src/protos and line (`today/parts.tsx:30`), and
+ * `component` the component it is written in (both stamped by source.mjs).
  */
-export type Target = { label: string; selector: string; shoot?: string; src?: string; tag: string; text: string; rect: Box; point?: { x: number; y: number } }
+export type Target = { label: string; selector: string; shoot?: string; src?: string; component?: string; tag: string; text: string; rect: Box; point?: { x: number; y: number } }
 
 /** A comment's words: text, and tags (an index into the comment's `tags`) between. */
 export type Seg = string | { tag: number }
@@ -17,14 +19,22 @@ export type Draft = { body: Seg[]; tags: Target[]; shot?: string }
 /** An unfinished new comment, and the element it was started on. */
 export type Held = Draft & { target: Target }
 
+/**
+ * A decision on a variant, made in the page: pick it (or take the pick back), more like it, build
+ * it. It goes to Claude as a comment with this and no element; its body is the optional note.
+ */
+export type Action = 'pick' | 'unpick' | 'more' | 'build'
+
 export type Item = Draft & {
   id: string
   proto: string
   variant: string
   state?: string
-  /** The pin's number, counted within its variant. */
+  /** The pin's number, counted within its variant (0 for an action, which has no pin). */
   n: number
-  target: Target
+  /** What it is on; an action has none. */
+  target?: Target
+  action?: Action
   at: number
   /** Once sent: the batch, and its place in it (1-based, as `proto reply` counts). */
   sent?: { batch: string; i: number }

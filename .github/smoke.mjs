@@ -2,11 +2,12 @@
 // add two prototypes (one built from the other), screenshot and snapshot them, open a state
 // listed in meta.ts, then stop and delete the session. Run by .github/workflows/smoke.yml on Windows, Linux and macOS.
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { get } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { startChrome, stopChrome } from '../scripts/chrome.mjs'
 
 const skill = dirname(dirname(fileURLToPath(import.meta.url)))
 const scratch = process.env.RUNNER_TEMP || tmpdir()
@@ -38,6 +39,33 @@ const proto = (args, { ok = true } = {}) => {
 }
 const answers = async url => { try { return (await fetch(url, { signal: AbortSignal.timeout(2000) })).ok } catch { return false } }
 const pngs = dir => existsSync(dir) ? readdirSync(dir).filter(f => f.endsWith('.png')) : []
+// Runs an expression in the page in headless Chrome once the page says it is ready, as shoot.mjs does.
+async function inPage(url, expression) {
+  const profile = mkdtempSync(join(tmpdir(), 'proto-smoke-'))
+  const chrome = startChrome([`--user-data-dir=${profile}`, '--no-first-run'])
+  let ws
+  try {
+    ws = new WebSocket(await new Promise((ok, no) => {
+      let b = ''
+      chrome.stderr.on('data', d => { b += d; const m = b.match(/DevTools listening on (ws:\/\/\S+)/); if (m) ok(m[1]) })
+      chrome.on('exit', () => no(new Error('Chrome exited')))
+    }))
+    await new Promise((ok, no) => { ws.onopen = ok; ws.onerror = no })
+    let n = 0
+    const waiting = new Map()
+    ws.onmessage = e => { const m = JSON.parse(e.data); waiting.get(m.id)?.(m.result); waiting.delete(m.id) }
+    const send = (method, params, sessionId) => new Promise(ok => { waiting.set(++n, ok); ws.send(JSON.stringify({ id: n, method, params, sessionId })) })
+    const { targetId } = await send('Target.createTarget', { url })
+    const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true })
+    const run = async expr => (await send('Runtime.evaluate', { expression: expr, returnByValue: true }, sessionId))?.result?.value
+    for (let i = 0; i < 150 && !await run('document.documentElement.dataset.ready === "1"'); i++) await new Promise(r => setTimeout(r, 100))
+    return await run(expression)
+  } finally {
+    ws?.close()
+    stopChrome(chrome)
+    try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) } catch { /* temp dir */ }
+  }
+}
 
 const out = proto(['up', '--name', 'Smoke'])
 const local = (out.match(/^local (\S+)/m) || out.match(/^url (\S+)/m) || [])[1]
@@ -113,8 +141,17 @@ if (/nothing matches \[data-shoot=open\]/.test(stateOut)) fail('the state hero/A
 if (!/nothing matches \[data-shoot=missing\]/.test(stateOut)) fail('proto shoot did not report the state whose clicks match nothing')
 cpSync(shots, keepShots, { recursive: true })
 
+// Where each part of a design is written: the variant's DOM elements carry their file and line
+// under src/protos and the component they are in, and the shell's own elements carry neither.
+const stamped = await inPage(`${local}?theme=light#/hero/A`, `(() => {
+  const b = document.querySelector('[data-mount] [data-shoot=open]')
+  return [b?.dataset.src, b?.dataset.component, document.querySelectorAll('[data-bar] [data-src], [data-side] [data-src]').length].join(' ')
+})()`)
+if (stamped !== 'hero/A.tsx:6 A 0') fail(`the variant's button should say hero/A.tsx:6 A (and the shell nothing), says: ${stamped}`)
+
 proto(['snap', 'hero/A'])
 if (!existsSync(join(app, '.proto', 'snaps', 'hero-A.jsx'))) fail('proto snap wrote no hero-A.jsx')
+if (readFileSync(join(app, '.proto', 'snaps', 'hero-A.jsx'), 'utf8').includes('data-src')) fail('the snapshot kept the data-src attributes')
 
 // A phone prototype at a device's size, compared with a reference screenshot. The path is
 // relative to the app, not to where proto runs.
@@ -142,12 +179,13 @@ const send = async comments => {
   return body
 }
 const sent = await send([
-  { route: 'hero/A', text: 'Make the price bigger', target: { selector: ':scope > div:nth-child(1)', shoot: 'open', tag: 'button', text: 'Open', rect: { x: 4, y: 8, w: 120, h: 40 } }, tags: [{ selector: ':scope > p', tag: 'p', text: 'Panel' }], images: [{ dataUrl: PNG, name: 'marked up' }] },
+  { route: 'hero/A', text: 'Make the price bigger', target: { selector: ':scope > div:nth-child(1)', shoot: 'open', src: 'hero/A.tsx:6', component: 'A', tag: 'button', text: 'Open', rect: { x: 4, y: 8, w: 120, h: 40 } }, tags: [{ selector: ':scope > p', tag: 'p', text: 'Panel' }], images: [{ dataUrl: PNG, name: 'marked up' }] },
   { route: 'home/B', text: 'Second one', point: { x: 10, y: 20 } },
 ])
 if (!sent.sent || sent.inbox?.new !== 1) fail(`the batch was not queued: ${JSON.stringify(sent)}`)
 const got = proto(['inbox'])
 if (!/Make the price bigger/.test(got) || !/data-shoot=open/.test(got) || !/at 4,8 120x40/.test(got)) fail('proto inbox did not print the comment with its element and place')
+if (!got.includes('src/protos/hero/A.tsx:6 (A)')) fail('proto inbox did not print where the element is written')
 const image = (got.match(/image: (.+?)(?:  \(|$)/m) || [])[1]?.trim()
 if (!image || !existsSync(image)) fail(`the screenshot is not on disk at ${image}`)
 if (!/no new comments/.test(proto(['inbox']))) fail('a batch was handed out twice')
@@ -161,6 +199,21 @@ state = await (await fetch(`${local}__proto/status`)).json()
 if (state.inbox.batches.find(b => b.id === batch)?.state !== 'done') fail('the batch is not done after replying to all of it')
 proto(['reply', 'nope/1', 'x'], { ok: false })
 if ((await fetch(`${local}__proto/comments`, { method: 'POST', body: '{"comments":[{"route":"BAD","text":"x"}]}' })).status !== 400) fail('a comment with a bad route was accepted')
+
+// A decision made in the page is a comment with an action. A pick is marked by the server at once
+// (meta.ts, and the working variant with "Picked B" in its history), before the agent reads it;
+// taking it back unmarks it. The inbox prints the action.
+await send([{ route: 'hero/B', text: 'Picked B', action: 'pick' }])
+if (!readFileSync(heroMeta, 'utf8').includes('"picked": "B"')) fail('a pick from the page did not mark hero/meta.ts')
+const picked = JSON.parse(readFileSync(join(app, 'session.json'), 'utf8'))
+if (picked.work?.proto !== 'hero' || picked.work.variant !== 'B' || picked.asks?.['hero/B']?.at(-1)?.text !== 'Picked B') fail(`a pick from the page should make hero/B the working variant with "Picked B": ${JSON.stringify(picked.work)} ${JSON.stringify(picked.asks?.['hero/B'])}`)
+if (!/^ {3}action: pick\b/m.test(proto(['inbox']))) fail('proto inbox did not print the pick with action: pick')
+await send([{ route: 'hero/B', text: 'Unpicked B', action: 'unpick' }, { route: 'hero/B', text: 'More like B: warmer', action: 'more' }])
+if (readFileSync(heroMeta, 'utf8').includes('"picked"')) fail('taking the pick back in the page left it in hero/meta.ts')
+if (!/action: more/.test(proto(['inbox']))) fail('proto inbox did not print action: more')
+for (const bad of [{ route: 'hero/Z', text: 'x', action: 'pick' }, { route: 'hero/B', text: 'x', action: 'dance' }, { route: 'hero', text: 'x', action: 'build' }]) {
+  if ((await fetch(`${local}__proto/comments`, { method: 'POST', body: JSON.stringify({ comments: [bad] }) })).status !== 400) fail(`an action that can't be done was accepted: ${JSON.stringify(bad)}`)
+}
 // Listening: --wait exits, printing the batch, once another one lands.
 const waiter = spawn(process.execPath, [join(skill, 'scripts', 'proto.mjs'), 'inbox', '--wait', '--project', project, '--session', 'smoke'], { stdio: ['ignore', 'pipe', 'pipe'] })
 let heard = ''

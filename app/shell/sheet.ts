@@ -11,6 +11,8 @@ export type SheetProps = {
   title: string
   rows: SheetRow[]
   lobby: boolean
+  /** On a variant, its Pick, More and Build (from the comment layer), above the list. */
+  decide?: ReactNode
   onClose: () => void
   onPick: (id: string) => void
   onLobby: () => void
@@ -46,6 +48,7 @@ function Sheet(p: SheetProps) {
             h('div', { className: 'flex items-center justify-between pb-1 pl-3' },
               h(Drawer.Title, { dir: 'auto', className: 'min-w-0 truncate text-[15px] font-semibold' }, p.title),
               h(Drawer.Close, { 'aria-label': 'Close', className: 'grid size-9 place-items-center rounded-full text-zinc-500 active:bg-zinc-900/5 dark:active:bg-white/10' }, X)),
+            p.decide ? h('div', { className: 'mb-2 border-b border-black/[.06] pb-3 pt-1 dark:border-white/10' }, p.decide) : null,
             h('div', { className: 'space-y-0.5' }, p.rows.map(row)),
             h('div', { className: 'mt-1.5 border-t border-black/[.06] pt-1.5 dark:border-white/10' },
               h('button', { type: 'button', onClick: p.onLobby, 'aria-current': p.lobby, className: `${ROW} ${p.lobby ? 'font-medium text-zinc-900 dark:text-white' : 'text-zinc-700 dark:text-zinc-300'}` },

@@ -55,11 +55,15 @@ function pathOf(mount: HTMLElement, el: HTMLElement) {
 export function describe(mount: HTMLElement, el: HTMLElement): Target {
   const r = el.getBoundingClientRect(), o = originOf(mount).getBoundingClientRect(), z = zoomOf(mount)
   const text = textOf(el)
+  // Where it is written: its own place in the prototype's files, else that of the nearest element
+  // around it they wrote (a part a library or an @project component draws has none of its own).
+  const code = el.closest<HTMLElement>('[data-src]')
+  const at = code && mount.contains(code) ? code : null
   return {
     label: labelOf(el),
     selector: pathOf(mount, el),
     ...(el.dataset.shoot ? { shoot: el.dataset.shoot } : {}),
-    ...(el.dataset.src ? { src: el.dataset.src } : {}),
+    ...(at ? { src: at.dataset.src, ...(at.dataset.component ? { component: at.dataset.component } : {}) } : {}),
     tag: el.tagName.toLowerCase(),
     text: text.slice(0, 80),
     rect: { x: Math.round((r.left - o.left) / z), y: Math.round((r.top - o.top) / z), w: Math.round(r.width / z), h: Math.round(r.height / z) },

@@ -4,10 +4,10 @@
 // any way but Cancel or Add is held, and comes back with the next comment.
 import type { CommentBatch } from '../shell'
 import { find } from './dom'
-import { plain } from './ui'
+import { ACTION, plain } from './ui'
 import type { Ctx, Host } from './ctx'
 import type { Store } from './store'
-import type { Draft, Item, Place, Target } from './types'
+import type { Action, Draft, Item, Place, Target } from './types'
 import { routeOf } from './types'
 
 const uid = () => Math.random().toString(36).slice(2, 9)
@@ -45,8 +45,8 @@ export function createActions(store: Store, host: Host) {
       const i = get().items.find(x => x.id === id)
       if (!i) return
       if (!here(i)) { host.go(i.proto, i.variant, i.state); set({ active: id }); return }
-      set({ active: id, mode: i.sent ? { kind: 'idle' } : { kind: 'compose', target: i.target, id } })
-      find(host.mount(), i.target)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      set({ active: id, mode: i.sent || !i.target ? { kind: 'idle' } : { kind: 'compose', target: i.target, id } })
+      if (i.target) find(host.mount(), i.target)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     },
     resume() { const h = get().held; if (h) set({ active: null, mode: { kind: 'compose', target: h.target } }) },
     discardHeld() { set({ held: null }) },
@@ -84,7 +84,7 @@ export function createActions(store: Store, host: Host) {
         comments: drafts.map(i => ({
           route: routeOf(i),
           text: plain(i),
-          ...(i.target.point ? { point: i.target.point } : {}),
+          ...(i.target?.point ? { point: i.target.point } : {}),
           target: i.target,
           ...(i.tags.length ? { tags: i.tags } : {}),
           ...(i.shot ? { images: [{ dataUrl: i.shot, name: 'marked up' }] } : {}),
@@ -98,6 +98,22 @@ export function createActions(store: Store, host: Host) {
       } catch (e) {
         set({ sending: false, error: e instanceof Error ? e.message : 'Could not send' })
       }
+    },
+    /**
+     * A decision on a variant (Pick, More like this, Build it), sent at once as a batch of its own:
+     * a comment with the action and no element, the note as its words. It joins the list as already
+     * sent, so it waits with Claude until answered like any comment, and drafts are left for their
+     * own send. Throws with the server's reason.
+     */
+    async decide(to: { proto: string; variant: string }, action: Action, note = '') {
+      const say = ACTION[action].say(to.variant), words = note.trim()
+      const batch = await host.send({
+        theme: host.dark() ? 'dark' : 'light',
+        viewport: { w: innerWidth, h: innerHeight, phone: innerWidth < 640 },
+        comments: [{ route: `${to.proto}/${to.variant}`, text: words ? `${say}: ${words}` : say, action }],
+      })
+      const item: Item = { id: uid(), proto: to.proto, variant: to.variant, n: 0, body: words ? [words] : [], tags: [], action, at: Date.now(), sent: { batch, i: 1 } }
+      set(s => ({ items: [...s.items, item] }))
     },
     clearError() { set({ error: '' }) },
     openSheet(open: boolean) { set({ sheet: open }) },

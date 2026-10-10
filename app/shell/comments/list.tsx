@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { useCtx } from './ctx'
 import { progress, useStore, type Said } from './store'
 import type { CState, Item } from './types'
-import { Body, Icon, Listening, MOD, PinDot, Reply, since, Working } from './ui'
+import { aboutOf, ACTION, Body, Icon, Listening, MOD, PinDot, Reply, since, SrcTag, Working } from './ui'
 
 export function useRows() {
   const { store, act } = useCtx()
@@ -20,10 +20,16 @@ const Head = ({ title, n, tone = 'text-zinc-500' }: { title: string; n: number; 
   <h3 className={`flex items-center gap-2 px-1 pb-1.5 pt-4 text-xs font-semibold first:pt-1 ${tone}`}>{title}<span className="rounded-full bg-zinc-900/[.06] px-1.5 text-[11px] font-medium tabular-nums dark:bg-white/10">{n}</span></h3>
 )
 const Where = ({ item, here }: { item: Item; here: boolean }) => here ? null : <span className="shrink-0 rounded bg-zinc-900/[.05] px-1 font-mono text-[10px] text-zinc-500 dark:bg-white/10">{item.variant}</span>
-const Extras = ({ item }: { item: Item }) => (item.tags.length > 0 || item.shot) ? (
-  <span className="mt-2 flex items-center gap-2 text-[11px] text-zinc-400">
+/** What a row is about: the element a comment is on, or a decision with its icon (it is on no element). */
+const About = ({ item }: { item: Item }) => item.action
+  ? <span className="inline-flex min-w-0 items-center gap-1.5"><Icon name={ACTION[item.action].icon} className="size-3.5" /><span className="truncate">{aboutOf(item)}</span></span>
+  : <span dir="auto">{aboutOf(item)}</span>
+// What a comment carries besides its words: its screenshot, how many it tags, where in the code it is.
+const Extras = ({ item }: { item: Item }) => (item.tags.length > 0 || item.shot || item.target?.src) ? (
+  <span className="mt-2 flex min-w-0 items-center gap-2 text-[11px] text-zinc-400">
     {item.shot && <img src={item.shot} alt="" className="h-9 w-14 rounded-md object-cover ring-1 ring-black/10" />}
-    {item.tags.length > 0 && <span className="inline-flex h-6 items-center gap-1 rounded-md bg-proto-primary-soft px-1.5 text-proto-primary-soft-fg"><Icon name="at" className="size-3" />{item.tags.length} tagged</span>}
+    {item.tags.length > 0 && <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md bg-proto-primary-soft px-1.5 text-proto-primary-soft-fg"><Icon name="at" className="size-3" />{item.tags.length} tagged</span>}
+    <SrcTag t={item.target} className="min-w-0" />
   </span>
 ) : null
 
@@ -35,7 +41,7 @@ function Draft({ r, active, roomy, onOpen }: { r: Row; active: boolean; roomy: b
     <div data-shoot="comment-row" className={`rounded-2xl border p-3 transition ${active ? 'border-proto-primary-ring bg-proto-primary-soft' : 'border-black/[.08] bg-white hover:border-black/20 dark:border-white/10 dark:bg-zinc-900 dark:hover:border-white/25'}`}>
       <div className="flex items-center gap-2">
         <PinDot n={item.n} />
-        <button onClick={onOpen} className="min-w-0 flex-1 truncate text-start text-xs font-medium text-zinc-500 dark:text-zinc-400"><span dir="auto">{item.target.label}</span></button>
+        <button onClick={onOpen} className="min-w-0 flex-1 truncate text-start text-xs font-medium text-zinc-500 dark:text-zinc-400"><span dir="auto">{aboutOf(item)}</span></button>
         <Where item={item} here={r.here} />
         <button onClick={() => act.remove(item.id)} aria-label="Remove this comment" className="-me-1 grid size-8 shrink-0 place-items-center rounded-full text-zinc-400 hover:text-rose-600 active:bg-zinc-900/5 dark:active:bg-white/10"><Icon name="trash" className="size-4" /></button>
       </div>
@@ -51,7 +57,7 @@ function WithClaude({ r, active, roomy, onOpen }: { r: Row; active: boolean; roo
     <button onClick={onOpen} data-shoot="comment-row" className={`flex w-full items-start gap-3 rounded-2xl p-3 text-start transition ${active ? 'bg-proto-primary-soft ring-1 ring-proto-primary-ring' : 'bg-proto-primary-soft/60 hover:bg-proto-primary-soft'}`}>
       <span className="mt-1"><Working /></span>
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2 text-xs"><span dir="auto" className="min-w-0 flex-1 truncate font-medium text-zinc-500 dark:text-zinc-400">{item.target.label}</span><Where item={item} here={r.here} /><span className="shrink-0 text-proto-primary-soft-fg">{r.state === 'seen' ? 'Claude is on it' : 'Sent'}</span></span>
+        <span className="flex items-center gap-2 text-xs"><span className="min-w-0 flex-1 truncate font-medium text-zinc-500 dark:text-zinc-400"><About item={item} /></span><Where item={item} here={r.here} /><span className="shrink-0 text-proto-primary-soft-fg">{r.state === 'seen' ? 'Claude is on it' : 'Sent'}</span></span>
         <Body c={item} className={`mt-0.5 block ${roomy ? 'text-sm leading-5' : 'text-[12.5px] leading-[18px]'}`} />
       </span>
     </button>
@@ -67,13 +73,13 @@ function DoneRow({ r, active, roomy, onShow }: { r: Row; active: boolean; roomy:
     <div data-shoot="comment-row">
       <button onClick={() => setOpen(!open)} aria-expanded={open} className={`flex w-full items-center gap-2.5 rounded-xl px-1 text-start active:bg-zinc-900/[.04] dark:active:bg-white/5 ${roomy ? 'h-11' : 'h-9'} ${active ? 'bg-emerald-500/10' : ''}`}>
         <PinDot n={item.n} done />
-        <span className={`min-w-0 flex-1 truncate text-zinc-500 ${roomy ? 'text-[13.5px]' : 'text-[12.5px]'}`}><Body c={item} /></span>
+        <span className={`min-w-0 flex-1 truncate text-zinc-500 ${roomy ? 'text-[13.5px]' : 'text-[12.5px]'}`}>{item.action ? <span dir="auto">{aboutOf(item)}{item.body.length ? `: ${item.body.join('')}` : ''}</span> : <Body c={item} />}</span>
         <Where item={item} here={r.here} />
         <Icon name="right" className={`size-4 text-zinc-400 transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
       {open && (
         <div className="space-y-2 pb-2 pe-1 ps-8">
-          <p className="flex items-center gap-2 text-xs text-zinc-400"><span dir="auto" className="min-w-0 truncate">{item.target.label}</span>{when && <span className="shrink-0">· {when === 'now' ? 'just now' : `${when} ago`}</span>}<button onClick={onShow} className="ms-auto shrink-0 font-medium text-proto-primary-soft-fg hover:underline">Show on design</button></p>
+          <p className="flex items-center gap-2 text-xs text-zinc-400"><span className="min-w-0 truncate"><About item={item} /></span>{when && <span className="shrink-0">· {when === 'now' ? 'just now' : `${when} ago`}</span>}<button onClick={onShow} className="ms-auto shrink-0 font-medium text-proto-primary-soft-fg hover:underline">{item.target ? 'Show on design' : `Go to ${item.variant}`}</button></p>
           {reply ? <Reply text={reply.text} by={reply.by} small /> : <p className="text-xs text-zinc-400">Marked done, no note.</p>}
         </div>
       )}

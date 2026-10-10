@@ -8,7 +8,7 @@ import { find, groupOf, parts } from './dom'
 import { EASE, GLIDE_MS, Glide, useBoxes } from './inspect'
 import { capture, ShotEditor } from './shot'
 import type { Box, Draft, Seg, Target } from './types'
-import { IB, Icon, MOD, PinDot, PRIMARY } from './ui'
+import { IB, Icon, MOD, PinDot, PRIMARY, SrcTag, srcOf } from './ui'
 
 function readEditor(el: HTMLElement): Seg[] {
   const out: Seg[] = []
@@ -20,12 +20,14 @@ function readEditor(el: HTMLElement): Seg[] {
   })
   return out.filter(s => s !== '')
 }
-const chipNode = (label: string, i: number) => {
+const chipNode = (t: Target | undefined, i: number) => {
   const s = document.createElement('span')
   s.contentEditable = 'false'
   s.dataset.tag = String(i)
+  const src = srcOf(t)
+  if (src) s.title = src.full
   s.className = 'mx-px inline-flex items-center rounded bg-proto-primary-soft px-1 font-medium text-proto-primary-soft-fg'
-  s.textContent = `@${label}`
+  s.textContent = `@${t?.label ?? '?'}`
   return s
 }
 const endRange = (el: HTMLElement) => { const x = document.createRange(); x.selectNodeContents(el); x.collapse(false); return x }
@@ -112,7 +114,7 @@ export function Composer({ target, n, initial, place, sheet, tagging, editing, i
   useLayoutEffect(() => {
     const el = ed.current!
     el.replaceChildren()
-    initial?.body.forEach(s => el.append(typeof s === 'string' ? document.createTextNode(s) : chipNode(initial.tags[s.tag]?.label ?? '?', s.tag)))
+    initial?.body.forEach(s => el.append(typeof s === 'string' ? document.createTextNode(s) : chipNode(initial.tags[s.tag], s.tag)))
     el.focus({ preventScroll: true })
     const sel = getSelection(); sel?.selectAllChildren(el); sel?.collapseToEnd()
     // On a phone the composer is a sheet over the bottom: the element moves up into view above it.
@@ -133,7 +135,7 @@ export function Composer({ target, n, initial, place, sheet, tagging, editing, i
       const txt = tn.textContent!, at = txt.lastIndexOf('@', r.startOffset - 1)
       if (at >= 0 && /^[^\s@]*$/.test(txt.slice(at + 1, r.startOffset))) { r.setStart(tn, at); r.deleteContents() }
     }
-    const chip = chipNode(p.label, i), space = document.createTextNode(' ')
+    const chip = chipNode(p, i), space = document.createTextNode(' ')
     r.insertNode(space); r.insertNode(chip)
     const after = document.createRange(); after.setStartAfter(space); after.collapse(true)
     const s = getSelection(); s?.removeAllRanges(); s?.addRange(after)
@@ -187,7 +189,7 @@ export function Composer({ target, n, initial, place, sheet, tagging, editing, i
         <div className="flex items-center gap-2 px-3 pt-2.5">
           <PinDot n={n} size="sm" />
           <span dir="auto" className="min-w-0 flex-1 truncate text-xs font-medium">{target.label}</span>
-          {target.src && <span className="shrink-0 font-mono text-[11px] text-zinc-400">{target.src}</span>}
+          <SrcTag t={target} />
         </div>
         <div className="relative px-3 pt-1.5">
           <div ref={ed} contentEditable suppressContentEditableWarning role="textbox" aria-label="Comment" aria-multiline="true" dir="auto"
@@ -219,7 +221,7 @@ export function Composer({ target, n, initial, place, sheet, tagging, editing, i
                         <button key={p.t.selector} data-i={i} onMouseDown={e => { e.preventDefault(); insert(p.t) }} onMouseEnter={() => { setRow(i); setPeeking(true) }}
                           className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-start transition-colors duration-150 ${row === i ? 'text-proto-primary-soft-fg' : 'text-zinc-600 dark:text-zinc-400'}`}>
                           <span dir="auto" className="min-w-0 flex-1 truncate">{at >= 0 ? <>{p.t.label.slice(0, at)}<b className="font-semibold text-zinc-900 dark:text-white">{p.t.label.slice(at, at + ql.length)}</b>{p.t.label.slice(at + ql.length)}</> : p.t.label}</span>
-                          {p.t.src && <span className="font-mono text-[11px] text-zinc-400">{p.t.src}</span>}
+                          <SrcTag t={p.t} />
                         </button>
                       )
                     })}

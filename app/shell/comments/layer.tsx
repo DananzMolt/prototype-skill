@@ -18,7 +18,7 @@ function Pins({ items, boxes, active, onOpen }: { items: { item: Item; done: boo
     if (!b) return null
     const on = active === c.id
     // A spot's pin sits on the spot; an element's on its top right corner.
-    const pt = !!c.target.point
+    const pt = !!c.target?.point
     const ring = done ? 'ring-emerald-500' : 'ring-proto-primary-ring'
     return (
       <div key={c.id}>
@@ -61,8 +61,9 @@ export function Layer() {
     return () => document.removeEventListener('click', alt, true)
   }, [host, act, s.place, m.kind])
 
-  const here = rows.filter(r => r.here)
-  const listed = here.map(r => ({ id: r.item.id, t: r.item.target }))
+  // Only comments are on the design; a decision (Pick, More, Build) is on the variant as a whole.
+  const here = rows.filter(r => r.here && r.item.target)
+  const listed = here.map(r => ({ id: r.item.id, t: r.item.target! }))
   if (editing && !editing.id) listed.push({ id: '__new', t: editing.target })
   const boxes = useBoxes(listed)
   if (!s.place) return null
@@ -122,7 +123,7 @@ function ReadCard({ row, box }: { row: { item: Item; state: ReturnType<typeof pr
     <div ref={el} className="pointer-events-auto absolute z-30 w-[min(15rem,calc(100%-1rem))] rounded-xl border border-black/10 bg-white p-2 text-[11px] leading-4 shadow-xl shadow-black/15 dark:border-white/10 dark:bg-zinc-900" style={{ left: at?.left ?? box.x, top: at?.top ?? box.y + box.h + 10, visibility: at ? 'visible' : 'hidden' }}>
       <div className="flex items-center gap-1.5 text-[10px]">
         <PinDot n={item.n} done={state === 'done'} size="sm" />
-        <span dir="auto" className="min-w-0 flex-1 truncate font-medium text-zinc-500">{item.target.label}</span>
+        <span dir="auto" className="min-w-0 flex-1 truncate font-medium text-zinc-500">{item.target?.label}</span>
         <span className={`shrink-0 ${STATE[state].cls}`}>{STATE[state].label}</span>
       </div>
       <Body c={item} className="mt-1 block text-zinc-800 dark:text-zinc-200" />
