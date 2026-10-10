@@ -3,7 +3,8 @@
 //
 //   proto up [--name "Session name"] [--stack react|vue]   create or restart, print the URL
 //   proto add <slug> --title "…" --variants "A:Name,B:Name" [--ask "…"] [--kind phone] [--screen 402x874]
-//             [--from <slug>/<letter>]   built from that variant: nested under it in the page
+//             [--from <slug>/<letter>[,<slug>/<letter>…]]   built from those variants: nested under the first
+//             [--from-picks]   built from every variant the user picked in this session
 //   proto shoot [route…] [--theme dark] [--focus] [--click <css>]  screenshots, e.g. hero hero/A hero/A/open
 //             [--ref <png>]   instead, the variant's screen beside that screenshot of the real one
 //   proto snap <slug>[/<letter>]… [--width 672]   static HTML snapshots for a Claude Doc
@@ -48,11 +49,14 @@ const argv = process.argv.slice(2)
 const cmd = argv[0]
 const flags = {}
 const args = []
+// Flags that are only on or off never take the next word, so `add --from-picks mix` or
+// `pick --off hero` still reads the slug as the slug.
+const SWITCHES = new Set(['from-picks', 'off', 'done', 'wait', 'focus'])
 for (let i = 1; i < argv.length; i++) {
   const a = argv[i]
   if (!a.startsWith('--')) { args.push(a); continue }
   const [k, v] = a.slice(2).split(/=(.*)/s)
-  flags[k] = v !== undefined ? v : argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : true
+  flags[k] = v !== undefined ? v : !SWITCHES.has(k) && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : true
 }
 
 const die = msg => { console.error(`proto: ${msg}`); process.exit(1) }
@@ -258,22 +262,35 @@ function add() {
     if (!m) die('--screen is the screen in points, like 402x874')
     meta.screen = [+m[1], +m[2]]
   }
-  // Built from another prototype (or one of its variants): the page nests it under that one.
-  if (flags.from) {
-    const [parent, variant = ''] = String(flags.from).split('/')
-    if (parent === slug) die('a prototype can\'t be built from itself')
-    const parentMeta = join(dir, 'src', 'protos', parent, 'meta.ts')
-    if (!existsSync(parentMeta)) die(`--from: no prototype "${parent}" in this session`)
-    if (variant && !readFileSync(parentMeta, 'utf8').includes(`"${variant}":`)) die(`--from: "${parent}" has no variant ${variant}`)
-    // Walk up from the parent; meeting this prototype again would make a loop.
-    const seen = new Set()
-    for (let up = parent; up && !seen.has(up);) {
-      if (up === slug) die(`--from: "${parent}" is already built from "${slug}"`)
-      seen.add(up)
-      const m = join(dir, 'src', 'protos', up, 'meta.ts')
-      up = existsSync(m) ? (readFileSync(m, 'utf8').match(/"from":\s*"([^"/]+)/) || [])[1] : undefined
+  // Built from other prototypes (or some of their variants): the page nests it under the first
+  // one and lists it as built from the others too. The first stays a plain "from" string and the
+  // rest go in "also", so a session whose page predates "also" still nests it under the first.
+  if (flags.from !== undefined || flags['from-picks']) {
+    if (flags.from !== undefined && flags['from-picks']) die('give --from or --from-picks, not both')
+    if (flags.from === true) die('--from takes <slug>/<letter>, several joined by commas: --from home/E,style/B')
+    const refs = [...new Set(flags['from-picks'] ? picks(dir, slug) : String(flags.from).split(',').map(x => x.trim()).filter(Boolean))]
+    if (!refs.length) die(flags['from-picks'] ? '--from-picks: nothing is picked in this session yet (proto pick <slug> <letter> marks a pick)' : '--from takes <slug>/<letter>')
+    for (const ref of refs) {
+      const [parent, variant = ''] = ref.split('/')
+      if (parent === slug) die('a prototype can\'t be built from itself')
+      const parentMeta = join(dir, 'src', 'protos', parent, 'meta.ts')
+      if (!existsSync(parentMeta)) die(`--from: no prototype "${parent}" in this session`)
+      if (variant && !readFileSync(parentMeta, 'utf8').includes(`"${variant}":`)) die(`--from: "${parent}" has no variant ${variant}`)
+      // Walk up from this parent through every parent above it, the extra ones included;
+      // meeting the new prototype on the way would make a loop.
+      const seen = new Set(), todo = [parent]
+      while (todo.length) {
+        const up = todo.pop()
+        if (up === slug) die(`--from: "${parent}" is already built from "${slug}"`)
+        if (seen.has(up)) continue
+        seen.add(up)
+        todo.push(...parentsOf(dir, up))
+      }
     }
-    meta.from = variant ? `${parent}/${variant}` : parent
+    meta.from = refs[0]
+    if (refs.length > 1) meta.also = refs.slice(1)
+    else delete meta.also
+    if (flags['from-picks']) console.log(`from ${refs.join(', ')}`)
   }
   // Keep the variant list last in meta.ts, where it is easiest to read.
   const { variants: names, ...head } = meta
@@ -322,6 +339,23 @@ const readMeta = (dir, slug) => {
   const f = join(dir, 'src', 'protos', slug || '', 'meta.ts')
   if (!slug || !existsSync(f)) return null
   return JSON.parse(readFileSync(f, 'utf8').replace(/^[\s\S]*?export default\s*/, '').replace(/;?\s*$/, ''))
+}
+/** The prototypes one was built from: its "from", then the "also" list. A meta.ts edited by
+ *  hand into something that isn't plain JSON any more counts as built from nothing. */
+function parentsOf(dir, slug) {
+  let m = null
+  try { m = readMeta(dir, slug) } catch { /* not plain JSON */ }
+  return [m?.from, ...(Array.isArray(m?.also) ? m.also : [])].filter(x => typeof x === 'string' && x).map(x => x.split('/')[0])
+}
+/** Every variant the user picked in this session, oldest prototype first (the page's order),
+ *  for a design that combines them. Archived prototypes and the one being added are left out. */
+function picks(dir, slug) {
+  const root = join(dir, 'src', 'protos')
+  return (existsSync(root) ? readdirSync(root) : []).filter(id => id !== slug)
+    .map(id => { try { return { id, m: readMeta(dir, id) } } catch { return { id, m: null } } })
+    .filter(({ m }) => m && !m.archived && m.picked && m.variants?.[m.picked])
+    .sort((a, b) => String(a.m.created || '').localeCompare(String(b.m.created || '')) || a.id.localeCompare(b.id))
+    .map(({ id, m }) => `${id}/${m.picked}`)
 }
 const sameVariant = (a, b) => !!a && !!b && a.proto === b.proto && a.variant === b.variant
 function target(dir, spec) {
@@ -661,8 +695,10 @@ const commands = {
   url: () => { const s = need(sessionDir()); console.log(s.url || s.localUrl || 'not started') },
   stack: () => { const d = detectStack(projectRoot()); console.log(`${d.stack} (${d.why})`) },
 }
+// The help is this file's opening comment, however many lines it grows to.
 if (!commands[cmd]) {
-  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split(/\r?\n/).slice(1, 19).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
+  const head = readFileSync(fileURLToPath(import.meta.url), 'utf8').split(/\r?\n/).slice(1)
+  console.log(head.slice(0, head.findIndex(l => !l.startsWith('//'))).map(l => l.replace(/^\/\/ ?/, '')).join('\n'))
   process.exit(cmd ? 1 : 0)
 }
 await commands[cmd]()

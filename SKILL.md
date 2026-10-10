@@ -167,7 +167,7 @@ invented feature is never mistaken for one that ships.
 ## 4. Add the prototype, then build each variant
 
 ```
-proto add <slug> --title "Hero sections" --ask "<the user's request, in their words>" --variants "A:Current,B:Split media,C:Big price" [--kind phone] [--screen 402x874] [--from <slug>/<letter>]
+proto add <slug> --title "Hero sections" --ask "<the user's request, in their words>" --variants "A:Current,B:Split media,C:Big price" [--kind phone] [--screen 402x874] [--from <slug>/<letter>[,<slug>/<letter>…] | --from-picks]
 ```
 
 `--from` is for a prototype built from part of an existing variant ("take the hero from
@@ -175,6 +175,14 @@ home B further", then "now just that hero's CTA"): `proto add hero --from home/B
 `proto add cta --from hero/C …`. The page puts it in a column after that variant, the switcher's
 second line shows the chain it came from, and the parent's overview links to it. `--from home`
 (no letter) nests it under the prototype as a whole.
+
+When the user wants parts of several variants in one design ("E's layout with B's style", "one
+last design from all my picks"), list them all after `--from`, the one whose structure the new
+design keeps first: `proto add mix --from layout/E,style/B …`. It nests under the first; the
+page names the others after a plus wherever it says where a prototype came from, and each of
+their overviews links to it too. `--from-picks` uses every variant the user picked in this
+session (oldest prototype first, archived ones left out) and prints the list; it stops if
+nothing is picked yet. Say in `--ask` what the new design takes from each.
 
 This writes `src/protos/<slug>/meta.ts` and a "Building…" placeholder per variant, prints a
 direct link to the prototype (`…/#/<slug>`), and the page jumps there by itself. Then replace each placeholder file whole, one at a time,
@@ -404,6 +412,8 @@ Each module is roughly 4 to 30 KB and goes through your tool calls, so snap only
 | Something new ("now the pricing page") | `proto add <new slug> …` |
 | Variations of one variant ("B but with a map") | new letters in the same prototype, named after B |
 | A part of one variant, explored on its own ("B's hero, but better") | `proto add <new slug> --from <slug>/B …` |
+| Parts of several variants together ("E's layout with B's style") | `proto add <new slug> --from <slug>/E,<slug>/B …`, the one whose layout it keeps first |
+| One design from everything they picked ("a final design from all my picks") | `proto add <new slug> --from-picks …` |
 | A choice ("go with A", "build B") | `proto pick <slug> <letter>` first, then what they asked |
 | A change to the variant being worked on ("make the price bigger") | `proto ask "…"`, then edit it |
 | A change to another variant ("now D, same idea") | `proto work <slug>/<letter> --ask "…"`, then edit it |

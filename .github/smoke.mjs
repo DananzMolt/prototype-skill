@@ -1,6 +1,7 @@
 // End-to-end check of the skill on this machine: create a session app in a scratch project,
-// add two prototypes (one built from the other), screenshot and snapshot them, open a state
-// listed in meta.ts, then stop and delete the session. Run by .github/workflows/smoke.yml on Windows, Linux and macOS.
+// add prototypes (one built from another, one from two at once, one from the picks), screenshot
+// and snapshot them, open a state listed in meta.ts, then stop and delete the session. Run by
+// .github/workflows/smoke.yml on Windows, Linux and macOS.
 import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { get } from 'node:http'
@@ -59,6 +60,9 @@ proto(['add', 'home', '--from', 'hero/A'], { ok: false })
 proto(['add', 'cta', '--from', 'home/Z', '--variants', 'A:x'], { ok: false })
 const meta = readFileSync(join(app, 'src', 'protos', 'hero', 'meta.ts'), 'utf8')
 if (!meta.includes('"from": "home/B"')) fail('hero/meta.ts has no "from": "home/B"')
+if (meta.includes('"also"')) fail('hero/meta.ts has one parent, so it should have no "also"')
+// Nothing is picked yet, so a design from the picks has nothing to start from.
+if (!/nothing is picked/.test(proto(['add', 'final', '--from-picks', '--variants', 'A:x'], { ok: false }))) fail('--from-picks with no picks did not say so')
 
 proto(['pick', 'home', 'B'])
 proto(['pick', 'home', 'Z'], { ok: false })
@@ -74,10 +78,29 @@ if (sess.work?.proto !== 'hero' || sess.work.variant !== 'A') fail(`work should 
 if (!sess.before?.some(b => b.proto === 'home' && b.variant === 'B')) fail('home/B (the pick) should be under before')
 if (sess.asks?.['hero/A']?.length !== 2 || sess.asks?.['home/B']?.[0]?.text !== 'Picked B') fail(`asks are wrong: ${JSON.stringify(sess.asks)}`)
 
-proto(['shoot', '', 'hero', 'hero/A'])
+// One design from two variants ("A's layout with hero B's style"): the first parent stays a plain
+// "from", the other goes in "also". A loop is refused when it runs through the second parent
+// given, and on through an "also" above it: combo is built from hero, so hero can't be from combo.
+const metaOf = slug => readFileSync(join(app, 'src', 'protos', slug, 'meta.ts'), 'utf8')
+proto(['add', 'combo', '--title', 'Combined', '--from', 'home/A,hero/B', '--variants', 'A:Both'])
+if (!metaOf('combo').includes('"from": "home/A"') || !/"also": \[\s*"hero\/B"\s*\]/.test(metaOf('combo'))) fail('combo/meta.ts should have "from": "home/A" and "also": ["hero/B"]')
+proto(['add', 'hero', '--from', 'home/A,combo/A'], { ok: false })
+proto(['add', 'mix', '--from', 'home/A,hero/Z', '--variants', 'A:x'], { ok: false })
+// Another prototype as a whole is kept without a letter (hero's overview lists it in its header).
+proto(['add', 'whole', '--title', 'All of hero', '--from', 'home/A,hero', '--variants', 'A:x'])
+if (!/"also": \[\s*"hero"\s*\]/.test(metaOf('whole'))) fail('whole/meta.ts should have "also": ["hero"]')
+// From the picks: every picked variant, oldest prototype first; an archived one is left out.
+proto(['add', 'old', '--title', 'Dropped', '--variants', 'A:x'])
+proto(['pick', 'old', 'A'])
+proto(['archive', 'old'])
+proto(['pick', 'hero', 'A'])
+const final = proto(['add', 'final', '--title', 'Final', '--from-picks', '--variants', 'A:All picks'])
+if (!/from home\/B, hero\/A$/m.test(final) || !metaOf('final').includes('"from": "home/B"') || !/"also": \[\s*"hero\/A"\s*\]/.test(metaOf('final'))) fail('final should be built from home/B, then hero/A')
+
+proto(['shoot', '', 'hero', 'hero/A', 'combo'])
 const shots = join(app, '.proto', 'shots')
 const made = pngs(shots)
-for (const want of ['session-desktop.png', 'hero-mobile.png', 'hero-A-desktop.png']) {
+for (const want of ['session-desktop.png', 'hero-mobile.png', 'hero-A-desktop.png', 'combo-desktop.png']) {
   if (!made.includes(want)) fail(`no ${want} (made: ${made.join(', ') || 'none'})`)
   if (statSync(join(shots, want)).size < 10_000) fail(`${want} looks empty`)
 }
