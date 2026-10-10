@@ -408,9 +408,29 @@ element. Read every screenshot. Then, per comment:
 
 ## 7. Only if asked: build it
 
-When the request says to implement the winner (the picked variant), build it in the real codebase with the
-project's own components and patterns; the variant file is a starting point, not a paste.
-Check it in the running app and reply with screenshots of the real feature.
+When the request says to implement the winner (the picked variant), start with
+
+```
+proto handoff <slug>/<letter>
+```
+
+It lists everything the variant has, each with its file and line: its files, states, marked
+elements, motion, materials, interactions, assets, copy and where its Try it list is. A build
+loses what nobody listed (a drag's tilt, the shade behind a sheet, a glass material), so put every
+line on your task list and tick it as the build gets it, or say why it doesn't apply.
+
+Build it in the real codebase with the project's own components and patterns; the variant file is
+a starting point, not a paste. Then screenshot the built screen the way Current's references were
+taken (step 2), at the variant's size, into the app's `.proto/ref/<slug>/built-<letter>.png` (each
+state as `built-<letter>-<state>.png`), and run
+
+```
+proto shoot <slug>/<letter> --ref .proto/ref/<slug>/built-<letter>.png --as built
+```
+
+It writes `<slug>-<letter>-vs-built.png`: the variant, the build and the two laid over each other.
+Read it and fix the build until the overlay shows no double edges. Reply with that sheet,
+screenshots of the real feature, and any line of the handoff left unticked.
 
 ## Only if asked: snapshots in a Claude Doc
 
@@ -442,6 +462,7 @@ Each module is roughly 4 to 30 KB and goes through your tool calls, so snap only
 | Parts of several variants together ("E's layout with B's style") | `proto add <new slug> --from <slug>/E,<slug>/B …`, the one whose layout it keeps first |
 | One design from everything they picked ("a final design from all my picks") | `proto add <new slug> --from-picks …` |
 | A choice ("go with A", "build B") | `proto pick <slug> <letter>` first, then what they asked |
+| The winner built into the codebase ("build B", "ship it") | `proto pick` if not yet, then `proto handoff <slug>/<letter>` and step 7 |
 | A change to the variant being worked on ("make the price bigger") | `proto ask "…"`, then edit it |
 | A change to another variant ("now D, same idea") | `proto work <slug>/<letter> --ask "…"`, then edit it |
 | To drop a direction or prototype | `proto archive <slug>` (still reachable under Archived) |
@@ -453,7 +474,7 @@ Each module is roughly 4 to 30 KB and goes through your tool calls, so snap only
 
 | When | Do |
 |---|---|
-| The user says they are done, or the winner has been built into the codebase | `proto stop` (files kept; `proto up` brings it back on the same link) |
+| The user says they are done, or the winner is built and its `-vs-built.png` shows no double edges | `proto stop` (files kept; `proto up` brings it back on the same link) |
 | The user asks to throw the prototypes away | `proto rm` |
 | The user wants to keep them | `proto keep` (`--off` undoes) |
 | The user wants their links | `proto ls` |
