@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { useCtx } from './ctx'
 import { progress, useStore, type Said } from './store'
 import type { CState, Item } from './types'
-import { Body, Icon, Listening, MOD, PinDot, Reply, since, Working } from './ui'
+import { Body, Icon, Listening, MOD, PinDot, Reply, since, SrcTag, Working } from './ui'
 
 export function useRows() {
   const { store, act } = useCtx()
@@ -20,10 +20,12 @@ const Head = ({ title, n, tone = 'text-zinc-500' }: { title: string; n: number; 
   <h3 className={`flex items-center gap-2 px-1 pb-1.5 pt-4 text-xs font-semibold first:pt-1 ${tone}`}>{title}<span className="rounded-full bg-zinc-900/[.06] px-1.5 text-[11px] font-medium tabular-nums dark:bg-white/10">{n}</span></h3>
 )
 const Where = ({ item, here }: { item: Item; here: boolean }) => here ? null : <span className="shrink-0 rounded bg-zinc-900/[.05] px-1 font-mono text-[10px] text-zinc-500 dark:bg-white/10">{item.variant}</span>
-const Extras = ({ item }: { item: Item }) => (item.tags.length > 0 || item.shot) ? (
-  <span className="mt-2 flex items-center gap-2 text-[11px] text-zinc-400">
+// What a comment carries besides its words: its screenshot, how many it tags, where in the code it is.
+const Extras = ({ item }: { item: Item }) => (item.tags.length > 0 || item.shot || item.target.src) ? (
+  <span className="mt-2 flex min-w-0 items-center gap-2 text-[11px] text-zinc-400">
     {item.shot && <img src={item.shot} alt="" className="h-9 w-14 rounded-md object-cover ring-1 ring-black/10" />}
-    {item.tags.length > 0 && <span className="inline-flex h-6 items-center gap-1 rounded-md bg-proto-primary-soft px-1.5 text-proto-primary-soft-fg"><Icon name="at" className="size-3" />{item.tags.length} tagged</span>}
+    {item.tags.length > 0 && <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md bg-proto-primary-soft px-1.5 text-proto-primary-soft-fg"><Icon name="at" className="size-3" />{item.tags.length} tagged</span>}
+    <SrcTag t={item.target} className="min-w-0" />
   </span>
 ) : null
 

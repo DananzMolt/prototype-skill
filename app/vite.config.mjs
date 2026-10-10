@@ -2,15 +2,18 @@ import { readFileSync, realpathSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import tailwind from '@tailwindcss/vite'
 import { prototypeServer } from './server.mjs'
+import { reactSource, vueSource } from './source.mjs'
 
 const session = JSON.parse(readFileSync(new URL('./session.json', import.meta.url), 'utf8'))
 // Only the session's own framework plugin is installed; a non-literal import keeps the
-// bundler from looking for the other one.
+// bundler from looking for the other one. Vue stamps where each element is written through its
+// template compiler; React through its JSX runtime (reactSource).
 const plugins = { react: '@vitejs/plugin-react', vue: '@vitejs/plugin-vue' }
-const framework = (await import(plugins[session.stack])).default()
+const options = { vue: { template: { compilerOptions: { nodeTransforms: [vueSource] } } } }
+const framework = (await import(plugins[session.stack])).default(options[session.stack])
 
 export default defineConfig({
-  plugins: [framework, tailwind(), prototypeServer(session)],
+  plugins: [framework, tailwind(), prototypeServer(session), reactSource()],
   // An inline config stops Vite from loading the project's own PostCSS config from above.
   css: { postcss: {} },
   resolve: { alias: { '@project': session.project } },

@@ -39,8 +39,9 @@ export type Inbox = {
   batches: { id: string; at: string; state: 'sent' | 'seen' | 'done'; reply: { text: string; at: string; by?: 'claude' | 'codex' } | null
     comments: { n: number; route: string; done: boolean; reply: { text: string; at: string; by?: 'claude' | 'codex' } | null }[] }[]
 }
-/** An element a comment is on or tags. Rect is in CSS px from the variant root's top left. */
-export type Pinned = { selector?: string; shoot?: string; src?: string; tag?: string; text?: string; rect?: { x: number; y: number; w: number; h: number } }
+/** An element a comment is on or tags. Rect is in CSS px from the variant root's top left; src and
+ *  component say where it is written (`today/parts.tsx:30`, `PriceCard`). */
+export type Pinned = { selector?: string; shoot?: string; src?: string; component?: string; tag?: string; text?: string; rect?: { x: number; y: number; w: number; h: number } }
 /** One send: route is <slug>/<letter>[/<state>]; images are data URLs (png, jpeg, webp). */
 export type CommentBatch = {
   comments: { route: string; text: string; point?: { x: number; y: number }; target?: Pinned; tags?: Pinned[]; images?: { dataUrl: string; name?: string }[] }[]

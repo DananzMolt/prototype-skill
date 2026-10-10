@@ -52,10 +52,26 @@ export const PinDot = ({ n, done, size = 'md' }: { n: number; done?: boolean; si
   <span className={`grid shrink-0 place-items-center rounded-full font-semibold tabular-nums ${size === 'sm' ? 'size-4 text-[9px]' : 'size-5 text-[10px]'} ${done ? 'bg-emerald-500 text-white' : 'bg-proto-primary text-proto-primary-fg'}`}>{done ? <Icon name="check" className="size-2.5" /> : n}</span>
 )
 
-export const Chip = ({ label }: { label: string }) => <span className="mx-px inline-flex items-center rounded bg-proto-primary-soft px-1 font-medium text-proto-primary-soft-fg">@{label}</span>
+/**
+ * Where in the code an element is written, kept short for the page: its component and the file's
+ * own name with the line (`PriceCard · parts.tsx:30`). The full path is the tooltip. A component
+ * named after its file (a Vue SFC) is said once.
+ */
+export function srcOf(t?: Pick<Target, 'src' | 'component'>) {
+  if (!t?.src) return null
+  const file = t.src.split('/').pop()!
+  const own = t.component && t.component !== file.replace(/\.\w+:\d+$/, '') ? t.component : ''
+  return { short: own ? `${own} · ${file}` : file, full: `src/protos/${t.src}${t.component ? ` · ${t.component}` : ''}` }
+}
+export function SrcTag({ t, className = 'max-w-[50%] shrink-0' }: { t?: Pick<Target, 'src' | 'component'>; className?: string }) {
+  const s = srcOf(t)
+  return s ? <span title={s.full} className={`truncate font-mono text-[11px] text-zinc-400 ${className}`}>{s.short}</span> : null
+}
+
+export const Chip = ({ t }: { t?: Target }) => <span title={srcOf(t)?.full} className="mx-px inline-flex items-center rounded bg-proto-primary-soft px-1 font-medium text-proto-primary-soft-fg">@{t?.label ?? '?'}</span>
 
 export function Body({ c, className = '' }: { c: { body: Seg[]; tags: Target[] }; className?: string }): ReactNode {
-  return <span dir="auto" className={className}>{c.body.map((s, i) => typeof s === 'string' ? <span key={i}>{s}</span> : <Chip key={i} label={c.tags[s.tag]?.label ?? '?'} />)}</span>
+  return <span dir="auto" className={className}>{c.body.map((s, i) => typeof s === 'string' ? <span key={i}>{s}</span> : <Chip key={i} t={c.tags[s.tag]} />)}</span>
 }
 
 /** The words of a comment as plain text, tags written as @Name: what the agent reads. */

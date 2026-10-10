@@ -88,7 +88,7 @@ export function inboxStatus() {
 const box = r => r && typeof r === 'object' ? { x: Math.round(+r.x || 0), y: Math.round(+r.y || 0), w: Math.round(+r.w || 0), h: Math.round(+r.h || 0) } : undefined
 const clip = (s, n) => typeof s === 'string' ? s.slice(0, n) : undefined
 const element = t => t && typeof t === 'object' ? {
-  selector: clip(t.selector, 500), shoot: clip(t.shoot, 100), src: clip(t.src, 300),
+  selector: clip(t.selector, 500), shoot: clip(t.shoot, 100), src: clip(t.src, 300), component: clip(t.component, 100),
   tag: clip(t.tag, 40), text: clip(t.text, 300), rect: box(t.rect),
 } : undefined
 

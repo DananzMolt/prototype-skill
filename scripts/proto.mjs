@@ -547,11 +547,14 @@ function take(dir) {
   return taken
 }
 
+// An element as the agent reads it: what it is, where it sits, and where it is written, the file
+// from the app's folder with its line and the component (`src/protos/today/parts.tsx:30 (PriceCard)`).
 const where = e => {
   if (!e) return ''
   const name = e.shoot ? `[data-shoot=${e.shoot}]` : e.selector || ''
   const r = e.rect ? ` at ${e.rect.x},${e.rect.y} ${e.rect.w}x${e.rect.h}` : ''
-  return [`<${e.tag || '?'}>`, e.text && `"${e.text.replace(/\s+/g, ' ').slice(0, 80)}"`, name].filter(Boolean).join(' ') + r + (e.src ? `  ${e.src}` : '')
+  const code = e.src ? `  src/protos/${e.src}${e.component ? ` (${e.component})` : ''}` : ''
+  return [`<${e.tag || '?'}>`, e.text && `"${e.text.replace(/\s+/g, ' ').slice(0, 80)}"`, name].filter(Boolean).join(' ') + r + code
 }
 function printBatch(dir, b) {
   const vp = b.viewport ? ` · page ${b.viewport.w}x${b.viewport.h}${b.viewport.phone ? ' (phone)' : ''}` : ''

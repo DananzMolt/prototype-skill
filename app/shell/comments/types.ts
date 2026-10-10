@@ -8,8 +8,10 @@ export type Box = { x: number; y: number; w: number; h: number }
  * across hot reloads while the structure does); `rect` is where it was, in CSS px from the
  * variant root's top left, which is what the agent is told. A comment pinned with a long press
  * has a `point` too, in the same px: the spot itself, with the element under it for context.
+ * `src` is where it is written, its file under src/protos and line (`today/parts.tsx:30`), and
+ * `component` the component it is written in (both stamped by source.mjs).
  */
-export type Target = { label: string; selector: string; shoot?: string; src?: string; tag: string; text: string; rect: Box; point?: { x: number; y: number } }
+export type Target = { label: string; selector: string; shoot?: string; src?: string; component?: string; tag: string; text: string; rect: Box; point?: { x: number; y: number } }
 
 /** A comment's words: text, and tags (an index into the comment's `tags`) between. */
 export type Seg = string | { tag: number }
