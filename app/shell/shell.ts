@@ -20,7 +20,7 @@ export type Variant = { id: string; name: string; file: string; load: () => Prom
 /** Something behind clicks in a prototype's variants (a menu, a drawer, a dialog), reached by
  *  clicking its selectors in order. about: one line per variant; only: the variants that have it. */
 export type State = { id: string; name: string; click: string[]; about?: Record<string, string>; only?: string[] }
-export type Proto = { id: string; title: string; ask: string; kind: 'web' | 'phone'; created: string; archived: boolean; from?: { proto: string; variant: string }; picked?: string; screen: [number, number]; about: Record<string, string>; states: State[]; variants: Variant[] }
+export type Proto = { id: string; title: string; ask: string; kind: 'web' | 'phone'; created: string; archived: boolean; from?: { proto: string; variant: string }; also: { proto: string; variant: string }[]; picked?: string; screen: [number, number]; about: Record<string, string>; states: State[]; variants: Variant[] }
 /** A variant of one prototype ("pricing" and "C"). */
 export type Ref = { proto: string; variant: string }
 /** work: the variant being changed now; before: the ones worked on before it (newest first);
@@ -212,6 +212,14 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
 
   // ---------- nesting: a prototype built from another one's variant sits under it ----------
   const parentOf = (p: Proto) => { const a = p.from && byId(p.from.proto); return a && !a.archived && a.id !== p.id ? a : undefined }
+  // A prototype that combines several (`--from a/E,b/B`) nests under the first only and keeps
+  // the rest in also. Its sources are all of them still in the session, the first one first,
+  // each with the variant taken; with the first archived, the next one leads.
+  const sources = (p: Proto) => [p.from, ...p.also].flatMap(r => { const a = r && byId(r.proto); return a && !a.archived && a.id !== p.id ? [{ p: a, v: r!.variant }] : [] })
+  const alsoOf = (p: Proto) => sources(p).slice(parentOf(p) ? 1 : 0)
+  /** One of the others, named: "Style B" in a line ("Style · B" on a chip), or just "B" when it
+   *  is another variant of the prototype it nests under. */
+  const srcName = (k: Proto, s: { p: Proto; v: string }, sep = ' ') => s.p === parentOf(k) && s.v ? esc(s.v) : `${bd(s.p.title)}${s.v ? `${sep}${esc(s.v)}` : ''}`
   const isRoot = (p: Proto) => !parentOf(p)
   /** What a prototype was built from, oldest first, each with the variant the next one came from. */
   const lineage = (p: Proto) => {
@@ -221,6 +229,9 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     return out
   }
   const kidsOf = (p: Proto, v?: string) => active().filter(k => k !== p && parentOf(k) === p && (v === undefined || k.from!.variant === v))
+  // An overview lists under a variant everything built from it, whether it nests there or
+  // takes that variant as one of its others; the tree (columns, lobby) follows kidsOf only.
+  const builtFrom = (p: Proto, v: string) => active().filter(k => k !== p && sources(k).some(s => s.p === p && s.v === v))
   // Built from the prototype as a whole, or from a variant that no longer exists.
   const looseKids = (p: Proto) => kidsOf(p).filter(k => !p.variants.some(v => v.id === k.from!.variant))
   const family = (p: Proto, depth = 1): { p: Proto; depth: number }[] =>
@@ -230,7 +241,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const nestIndent = (depth: number) => depth ? 14 + 6 * (Math.min(depth, 3) - 1) : 0
   const treeOrder = () => active().filter(isRoot).flatMap(p => [{ p, depth: 0 }, ...family(p)])
   const editingUnder = (p: Proto): boolean => editing(p.id) || kidsOf(p).some(editingUnder)
-  const nestKey = () => active().map(p => `${p.id}<${p.from?.proto ?? ''}/${p.from?.variant ?? ''}:${p.title}:${p.variants.length}:${pickOf(p)}`).join('|')
+  const nestKey = () => active().map(p => `${p.id}<${p.from?.proto ?? ''}/${p.from?.variant ?? ''}${p.also.map(r => `+${r.proto}/${r.variant}`).join('')}:${p.title}:${p.variants.length}:${pickOf(p)}`).join('|')
   // The variant the user chose ("go with A"); it's listed first and the rest stay reachable.
   const pickOf = (p: Proto) => p.picked && p.variants.some(v => v.id === p.picked) ? p.picked : ''
   const lobbyOrder = (p: Proto) => { const k = pickOf(p); return k ? [...p.variants.filter(v => v.id === k), ...p.variants.filter(v => v.id !== k)] : p.variants }
@@ -674,14 +685,14 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   const lobbyRoots = () => newestFirst().filter(isRoot)
   const GRID = 'grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4'
   const NEST = 'bg-sky-500/10 text-sky-700 hover:bg-sky-500/20 dark:text-sky-300'
-  const fromChip = (p: Proto) => {
-    const a = parentOf(p)
-    if (!a) return ''
-    const v = p.from!.variant
-    return `<button data-act="${v && a.variants.some(x => x.id === v) ? `pv:${esc(a.id)}:${esc(v)}` : `lobby:proto:${esc(a.id)}`}" class="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${NEST}">${ic('from', 'size-3.5')}<span class="truncate">Built from ${esc(a.title)}${v ? ` · ${esc(v)}` : ''}</span></button>`
-  }
-  const kidChips = (p: Proto, v: string) => kidsOf(p, v).map(k => `<button data-act="lobby:proto:${esc(k.id)}" class="mt-1.5 flex h-8 w-full items-center gap-1.5 rounded-lg px-2 text-xs font-medium ${NEST}">${ic('branch', 'size-3.5')}<span class="truncate">${esc(k.title)}</span><span class="ml-auto tabular-nums opacity-70">${k.variants.length}</span></button>`).join('')
+  // Where it came from, a chip each: what it nests under, then the others it combines after a
+  // plus ("B" alone when it is another variant of the same prototype).
+  const fromChips = (p: Proto) => sources(p).map((s, i) => `<button data-act="${s.v && s.p.variants.some(x => x.id === s.v) ? `pv:${esc(s.p.id)}:${esc(s.v)}` : `lobby:proto:${esc(s.p.id)}`}" class="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${NEST}">${ic(i ? 'plus' : 'from', 'size-3.5')}<span class="truncate">${i ? srcName(p, s, ' · ') : `Built from ${bd(s.p.title)}${s.v ? ` · ${esc(s.v)}` : ''}`}</span></button>`).join('')
+  const kidChips = (p: Proto, v: string) => builtFrom(p, v).map(k => `<button data-act="lobby:proto:${esc(k.id)}" class="mt-1.5 flex h-8 w-full items-center gap-1.5 rounded-lg px-2 text-xs font-medium ${NEST}">${ic('branch', 'size-3.5')}<span dir="auto" class="truncate">${esc(k.title)}</span><span class="ml-auto tabular-nums opacity-70">${k.variants.length}</span></button>`).join('')
 
+  // A card's rows say which variant each came from; one that combines others names them after a
+  // plus. That part only takes the room the title leaves (flex-1 starts from nothing), so a title
+  // that fits is never cut for it; the tooltip has all of it.
   function sessionLobby() {
     const list = lobbyRoots()
     if (!list.length) return `<div class="grid min-h-full place-items-center p-8 text-center"><div><div class="mx-auto mb-4 grid size-10 place-items-center">${pulse('size-2.5', st.live)}</div><h2 dir="auto" class="text-base font-semibold">${esc(session.name)}</h2><p class="mt-1 text-zinc-500">Waiting for the first prototype. This page updates by itself.</p></div></div>`
@@ -692,14 +703,14 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
         ${p.variants.length ? `<div class="overflow-hidden rounded-md ring-1 ring-black/5 dark:ring-white/10">${thumb(p, 'aspect-[16/10]')}</div>` : '<div class="aspect-[16/10] rounded-md bg-zinc-900/[.03] dark:bg-white/[.04]"></div>'}
         <div class="mt-3 flex items-center gap-2 px-1"><span dir="auto" class="truncate font-semibold">${esc(p.title)}</span>${editing(p.id) ? pulse('size-1.5') : ''}<span class="ml-auto shrink-0 text-xs text-zinc-400">${p.variants.length} variant${p.variants.length === 1 ? '' : 's'} · ${pickOf(p) ? `<span class="inline-flex items-center gap-0.5 align-top font-medium ${PICK}">${ic('check', 'size-3')}Picked ${esc(pickOf(p))}</span>` : clock(p.created)}</span></div>
         <div dir="auto" class="truncate px-1 pb-1 text-xs text-zinc-500">${p.ask ? `“${esc(p.ask)}”` : ''}</div></button>
-        ${family(p).map(({ p: k, depth }) => `<button data-act="lobby:proto:${esc(k.id)}" class="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-lg pr-1 text-left text-xs text-zinc-600 hover:bg-zinc-900/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]" style="padding-left:${4 + nestIndent(depth) - nestIndent(1)}px">${ic('branch', 'size-3.5 text-sky-500')}<span dir="auto" class="truncate">${esc(k.title)}</span>${pickChip(k)}${editingUnder(k) ? pulse('size-1.5') : ''}${k.from!.variant ? `<span class="shrink-0 text-zinc-400">from ${esc(k.from!.variant)}</span>` : ''}<span class="ml-auto shrink-0 tabular-nums text-zinc-400">${k.variants.length}</span></button>`).join('')}</div>`).join('')}</div></div>`
+        ${family(p).map(({ p: k, depth }) => `<button data-act="lobby:proto:${esc(k.id)}" class="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-lg pr-1 text-left text-xs text-zinc-600 hover:bg-zinc-900/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]" style="padding-left:${4 + nestIndent(depth) - nestIndent(1)}px">${ic('branch', 'size-3.5 text-sky-500')}<span dir="auto" class="truncate">${esc(k.title)}</span>${pickChip(k)}${editingUnder(k) ? pulse('size-1.5') : ''}${k.from!.variant ? `<span class="shrink-0 text-zinc-400">from ${esc(k.from!.variant)}</span>` : ''}${alsoOf(k).length ? (t => `<span title="${t.replace(/<\/?bdi>/g, '')}" class="min-w-8 flex-1 truncate text-zinc-400">${t}</span>`)(alsoOf(k).map(s => `+ ${srcName(k, s)}`).join(' ')) : ''}<span class="ml-auto shrink-0 tabular-nums text-zinc-400">${k.variants.length}</span></button>`).join('')}</div>`).join('')}</div></div>`
   }
 
   function protoLobby(p: Proto) {
     const grid = protoGrid(p)
     const tab = (on: boolean, act: string, icon: string, label: string) => `<button data-act="${act}" aria-pressed="${on}" title="${label}" class="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs ${on ? TAB_ON : TAB_OFF}">${ic(icon, 'size-3.5')}<span class="hidden sm:inline">${label}</span></button>`
     const layoutToggle = `<div class="flex gap-0.5 rounded-lg bg-zinc-900/[.04] p-0.5 dark:bg-white/[.06]">${tab(!st.stack, 'stack:0', 'grid', 'Grid')}${tab(st.stack, 'stack:1', 'rows', 'Full size')}</div>`
-    return `<div class="flex flex-wrap items-end justify-between gap-2 px-4 pt-5 sm:px-6"><div class="min-w-0">${parentOf(p) ? `<div class="mb-2">${fromChip(p)}</div>` : ''}<h2 class="flex items-center gap-2 text-xl font-semibold tracking-tight">${bd(p.title)}${pickOf(p) ? `<span class="inline-flex h-6 items-center gap-1 rounded-full bg-emerald-500/10 px-2 text-xs font-semibold tracking-normal ${PICK}">${ic('check', 'size-3.5')}Picked ${esc(pickOf(p))}</span>` : ''}</h2><p class="text-xs text-zinc-500">${p.ask ? `<bdi>“${esc(p.ask)}”</bdi> · ` : ''}${p.variants.length} variant${p.variants.length === 1 ? '' : 's'} · ${clock(p.created)}</p></div>${p.variants.length ? layoutToggle : '<p class="text-xs text-zinc-400">No variants yet</p>'}</div>
+    return `<div class="flex flex-wrap items-end justify-between gap-2 px-4 pt-5 sm:px-6"><div class="min-w-0">${sources(p).length ? `<div class="mb-2 flex flex-wrap gap-1.5">${fromChips(p)}</div>` : ''}<h2 class="flex items-center gap-2 text-xl font-semibold tracking-tight">${bd(p.title)}${pickOf(p) ? `<span class="inline-flex h-6 items-center gap-1 rounded-full bg-emerald-500/10 px-2 text-xs font-semibold tracking-normal ${PICK}">${ic('check', 'size-3.5')}Picked ${esc(pickOf(p))}</span>` : ''}</h2><p class="text-xs text-zinc-500">${p.ask ? `<bdi>“${esc(p.ask)}”</bdi> · ` : ''}${p.variants.length} variant${p.variants.length === 1 ? '' : 's'} · ${clock(p.created)}</p></div>${p.variants.length ? layoutToggle : '<p class="text-xs text-zinc-400">No variants yet</p>'}</div>
       ${st.stack ? stack(p) : grid}`
   }
 
@@ -714,7 +725,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   // Every variant at full size, one after another, live. Each frame is at least as tall as the
   // stage (a grid, so a root with h-full fills it) and contains its own position:fixed.
   function stack(p: Proto) {
-    const head = (v: Variant) => `<div class="mb-3 flex h-8 min-w-0 items-center gap-2 ${p.kind === 'phone' ? 'justify-center' : ''}"><button data-act="pv:${esc(p.id)}:${v.id}" title="Open ${v.id}" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md hover:underline hover:decoration-zinc-400 hover:underline-offset-4"><span class="font-semibold">${v.id}</span><span dir="auto" class="truncate text-zinc-500">${esc(v.name)}</span></button>${v.id === pickOf(p) ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs font-medium ${PICK}">${ic('check', 'size-3.5')}Picked</span>` : ''}${editing(p.id, v.id) ? pulse('size-1.5') : ''}${kidsOf(p, v.id).map(k => `<button data-act="lobby:proto:${esc(k.id)}" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${NEST}">${ic('branch', 'size-3.5')}${bd(k.title)}</button>`).join('')}</div>`
+    const head = (v: Variant) => `<div class="mb-3 flex h-8 min-w-0 items-center gap-2 ${p.kind === 'phone' ? 'justify-center' : ''}"><button data-act="pv:${esc(p.id)}:${v.id}" title="Open ${v.id}" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md hover:underline hover:decoration-zinc-400 hover:underline-offset-4"><span class="font-semibold">${v.id}</span><span dir="auto" class="truncate text-zinc-500">${esc(v.name)}</span></button>${v.id === pickOf(p) ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs font-medium ${PICK}">${ic('check', 'size-3.5')}Picked</span>` : ''}${editing(p.id, v.id) ? pulse('size-1.5') : ''}${builtFrom(p, v.id).map(k => `<button data-act="lobby:proto:${esc(k.id)}" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${NEST}">${ic('branch', 'size-3.5')}${bd(k.title)}</button>`).join('')}</div>`
     if (p.kind === 'phone') return `<div class="flex flex-wrap justify-center gap-x-10 gap-y-8 p-4 sm:p-6">${lobbyOrder(p).map(v => `<section data-stack-item class="min-w-0">${head(v)}<div data-phone class="${PHONE} [contain:layout_paint]" style="${phoneSize(p)}"><div data-mount class="h-full overflow-y-auto"></div></div></section>`).join('')}</div>`
     return `<div class="space-y-8 py-4 sm:py-6">${lobbyOrder(p).map(v => `<section data-stack-item><div class="px-4 sm:px-6">${head(v)}</div><div class="grid min-h-[var(--stage-h)] border-y border-black/[.07] bg-white [contain:layout_paint] dark:border-white/10 dark:bg-zinc-950"><div data-mount class="min-w-0"></div></div></section>`).join('')}</div>`
   }
@@ -787,6 +798,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     // what it was built from), opening the whole session as columns.
     const sub = view === 'session' ? `${active().length} prototype${active().length === 1 ? '' : 's'}`
       : [session.name, ...line.map(a => `${a.p.title} ${a.v}`)].map(t => `<span dir="auto" class="min-w-0 max-w-[12rem] shrink truncate">${esc(t)}</span>`).join(ic('right', 'size-3 shrink-0 text-zinc-400'))
+        // Then the others it combines, each after a plus.
+        + alsoOf(p!).map(s => `${ic('plus', 'size-3 shrink-0 text-zinc-400')}<span class="min-w-0 max-w-[12rem] shrink truncate">${srcName(p!, s)}</span>`).join('')
     const switcher = `<div class="relative flex min-w-0">
         <button data-act="open:switch" data-shoot="switcher" aria-haspopup="dialog" aria-expanded="${st.open === 'switch'}" title="Every prototype and variant" class="flex h-10 min-w-0 items-center gap-2 rounded-lg px-2.5 text-left hover:bg-zinc-900/5 dark:hover:bg-white/10 ${st.open === 'switch' ? ON : ''}">
           <span class="min-w-0 leading-tight">
