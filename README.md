@@ -20,9 +20,21 @@
 
 Prototype is a skill for Claude Code. Ask for a few versions of a screen and Claude opens one live app for your session, sends you its link, and builds five different takes into it while you watch. Each one starts from a faithful rebuild of your real screen, so they all look like your product. Then Claude checks its own screenshots and tells you which one it would ship, and why.
 
-<div align="center">
-<img src="docs/images/live.gif" alt="Three hero variants appearing one after another as Claude writes them" width="720">
-</div>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/variant-dark.png">
+  <img src="docs/images/variant-light.png" alt="A variant of a revenue dashboard, with the session's prototypes and variants in columns in the sidebar">
+</picture>
+<br><sub>A variant, with every prototype and variant of the session in the sidebar.</sub>
+</p>
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/comments-dark.png">
+  <img src="docs/images/comments-light.png" alt="A comment being written on the date range, and another ready to send in the Comments panel">
+</picture>
+<br><sub>Comments on the design go to Claude, who makes the change and replies.</sub>
+</p>
 
 ## Install
 
@@ -88,24 +100,6 @@ Or just ask for "a few versions of the settings drawer". Keep talking in the sam
 
 ### A pick, not a pile
 - Claude screenshots every variant on desktop and phone, fixes what it sees over two rounds, then recommends one and says why.
-
-## Screenshots
-
-<p align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/variant-dark.png">
-  <img src="docs/images/variant-light.png" alt="A variant of a revenue dashboard, with the session's prototypes and variants in columns in the sidebar">
-</picture>
-<br><sub>A variant, with every prototype and variant of the session in the sidebar.</sub>
-</p>
-
-<p align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/comments-dark.png">
-  <img src="docs/images/comments-light.png" alt="A comment being written on the date range, and another ready to send in the Comments panel">
-</picture>
-<br><sub>Comments on the design go to Claude, who makes the change and replies.</sub>
-</p>
 
 ## How it works
 
