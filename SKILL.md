@@ -270,28 +270,54 @@ useHints([
   visit); a different design is a variant.
 - Vue: `useHints(() => [...])` in `<script setup>`. A variant with nothing to say makes no call.
 
+**Build the variants in parallel when you can.** When there are 3 or more variants to write, the
+harness has subagents, and Current matches its reference (for a new product: once the tokens and
+`parts.tsx` exist), give each variant its own subagent. First write everything shared yourself
+(`parts.tsx`, `src/theme.css`, `meta.ts`, packages), then start every subagent in one message.
+Each is told:
+
+- its letter, its direction in a sentence or two, and the feature's must-do lines;
+- the app's folder, the reference screenshots, and `A.tsx` to start from;
+- to write only `src/protos/<slug>/<letter>.tsx` and lowercase helpers of its own (`c-map.tsx`).
+  `parts.tsx`, `meta.ts`, `theme.css` and the other variants are read-only to it, and it installs
+  nothing; it asks for those in its reply;
+- `--session <the main session's $CLAUDE_CODE_SESSION_ID>` on every `proto` call, plus
+  `--project <project root>` if it works in another folder; never `proto up`, `add`, `pick` or `work`;
+- to shoot only its own variant (`proto shoot <slug>/<letter>`), read the shots, fix, and shoot again;
+- to reply in at most five lines: what it built, and its weakest point.
+
+When all are back, run one `proto shoot <slug> --sheet`, read it, fix what the sheet shows and
+what the subagents named, write each variant's `about` and `states` into `meta.ts`, then go on
+with step 5. Without subagents, write the variants one after another; the sheet is the same.
+
 ## 5. Look at it, then iterate
 
 ```
-proto shoot <slug> <slug>/A <slug>/B …          # lobby plus each variant, desktop and phone
-proto shoot <slug>/A --theme=dark               # dark mode
-proto shoot <slug>/B/row-menu                   # a state listed in meta.ts
+proto shoot <slug> --sheet                      # every variant on one contact sheet: what you read each round
+proto shoot <slug> --sheet --theme dark         # the same in dark mode
+proto shoot <slug> --sheet --state row-menu     # a state from meta.ts, across the variants that have it
+proto shoot <slug>/B <slug>/B/row-menu          # single shots of routes (no route: the session lobby)
 proto shoot <slug>/B --click "[data-shoot=add]" # a state reached by clicking (repeatable)
 proto shoot <slug>/A --ref <screenshot.png>     # beside and over a screenshot of the real screen
 ```
 
-It prints absolute PNG paths (in the app's `.proto/shots/`), and for a right-to-left prototype
-first lists any physical left or right in its files (see Right to left). Each shot is the stage
-only (the design, or a lobby's grid), without the page's sidebar and bars, in a 1440×900 or a
-390×844 page; a `--kind phone` prototype's variants get only the phone shot, where the phone
-shows larger. For states behind an interaction, put `data-shoot="…"` on the
-elements and list the state in `meta.ts`, or pass one `--click` per step. If a state's clicks
-match nothing, `proto shoot` says so. Read every screenshot, all of one shoot's in a single
-message (one Read per file, sent together), so they are compared side by side. For each
-variant, note what breaks: alignment, hierarchy, clipped text, overflow on the phone shot,
-weak affordance, too many steps. Fix it and push each variant further in its own direction
-instead of letting them converge. Do 2 rounds unless the user asked for more, and shoot again
-after the last round.
+`--sheet` shoots every variant (a web one at 1440×900 and 390×844, a `--kind phone` one at
+phone size only) and prints one contact sheet per prototype, `<slug>-sheet.png`: a column per
+variant with its letter and name, desktop above phone, the picked one outlined, no more than
+2000 px either way. Then one line says where the single shots are (`<slug>-<letter>-desktop.png`,
+`-mobile.png`, in the app's `.proto/shots/`). **Read the sheet: one image a round.** It is for
+comparing layout, hierarchy and how far apart the directions are; desktop shows at about a third
+of its size, the phone row close to full size. Open a single shot only for what the sheet can't
+show (small copy, an alignment, a clipped edge), and only that one. Past about 12 variants it
+goes on to `-sheet-2.png`; read each.
+
+For a right-to-left prototype, `proto shoot` first lists any physical left or right in its files
+(see Right to left). For states behind an interaction, put `data-shoot="…"` on the elements and
+list the state in `meta.ts`, or pass one `--click` per step; if a state's clicks match nothing,
+`proto shoot` says so. For each variant, note what breaks: alignment, hierarchy, clipped text,
+overflow on the phone row, weak affordance, too many steps. Fix it and push each variant further
+in its own direction instead of letting them converge. Do 2 rounds unless the user asked for
+more, and shoot the sheet again after the last round.
 
 ## 6. Pick one and say why
 
@@ -299,10 +325,11 @@ Choose the best variant yourself (never Current; if nothing beats it, say so). T
 includes:
 
 1. The live link, at the top.
-2. With a Current, its `-vs-ref.png` sheet first, so the user sees it matches. Then screenshots
-   of the final variants as images with absolute paths
-   (`![A · Split media](/abs/path/hero-A-desktop.png)`; `-mobile.png` for a phone prototype),
-   plus the phone shot wherever a web variant changes noticeably on mobile.
+2. With a Current, its `-vs-ref.png` sheet first, so the user sees it matches. Then the last
+   round's contact sheet as an image with its absolute path
+   (`![Hero sections](/abs/path/hero-sheet.png)`), and `-sheet-dark.png` too when the variants
+   have a dark mode. Add a single shot only where the sheet can't carry the point: your pick at
+   full size (`![C · Big price](/abs/path/hero-C-desktop.png)`), or a detail you name in the text.
 3. One line per variant: its direction and its main weakness.
 4. The pick and why it wins for this product and its users, in two to four sentences, and
    what you would take from the runners-up.
