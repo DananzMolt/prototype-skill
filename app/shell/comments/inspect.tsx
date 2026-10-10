@@ -8,8 +8,8 @@ import type { Box, Target } from './types'
 import { useCtx } from './ctx'
 
 export const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
-export const GLIDE_MS = 220
-export const FADE_MS = 150
+export const GLIDE_MS = 110
+export const FADE_MS = 90
 /** How long a finger holds still on the design to pin a comment to that spot. */
 export const HOLD_MS = 500
 
@@ -140,7 +140,7 @@ export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Tar
       clearTimeout(timer)
       pending = el
       // Quick to show the first outline, steady when switching, slow to let go on leaving.
-      timer = window.setTimeout(() => { pending = undefined; show(el, false) }, el ? (cur.current ? 40 : 15) : 100)
+      timer = window.setTimeout(() => { pending = undefined; show(el, false) }, el ? (cur.current ? 20 : 0) : 60)
     }
     // Presses never reach the design's own handlers; the default is kept off only for a mouse,
     // so a finger can still scroll the page.

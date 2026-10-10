@@ -1,10 +1,11 @@
 // Over the design: the outline on what the pointer is on, a numbered pin on each commented
 // element (or on the spot itself, for one pinned with a long press), the ring under a holding
-// finger, the composer beside the one being written, and a sent comment's card.
+// finger, the outline that stays on what a new comment is being written on, the composer beside
+// the one being written, and a sent comment's card.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useCtx } from './ctx'
 import { describe } from './dom'
-import { HoldRing, HoverBox, useBoxes, usePick } from './inspect'
+import { Glide, HoldRing, HoverBox, useBoxes, usePick } from './inspect'
 import { Composer } from './composer'
 import { useRows } from './list'
 import { progress, type Said } from './store'
@@ -67,11 +68,16 @@ export function Layer() {
   if (!s.place) return null
   const phone = s.place.phone
   const nextN = Math.max(0, ...s.items.filter(i => i.proto === s.place!.proto && i.variant === s.place!.variant).map(i => i.n)) + 1
+  // What a new comment is on stays outlined while it is written (an existing one is outlined by its pin).
+  const onNew = editing && !editing.id ? boxes['__new'] : undefined
+  const onSpot = !!editing?.target.point
   const opened = !editing && s.active ? rows.find(r => r.item.id === s.active && r.here) : undefined
   return (
     <>
       <HoverBox hover={hover} verb={verb} onConfirm={confirm} onUp={up} />
       <HoldRing at={hold} />
+      <Glide item={onNew && !onSpot ? { box: onNew } : null} pad={3} className="rounded-md border-2 border-proto-primary-ring bg-proto-primary/[.08]">{() => null}</Glide>
+      {onNew && onSpot && <div className="pointer-events-none absolute z-10 size-8 rounded-full ring-2 ring-proto-primary-ring" style={{ left: onNew.x - 16, top: onNew.y - 16 }} />}
       <Pins items={here.map(r => ({ item: r.item, done: r.state === 'done' }))} boxes={boxes} active={s.active} onOpen={act.open} />
       {editing && (
         <Composer key={editing.id ?? editing.target.selector} target={editing.target} n={editedItem?.n ?? nextN} place={boxes[editing.id ?? '__new'] ?? null}
