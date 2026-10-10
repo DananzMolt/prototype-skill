@@ -1,7 +1,8 @@
 // End-to-end check of the skill on this machine: create a session app in a scratch project,
 // add prototypes (one built from another, one from two at once, one from the picks), screenshot
 // them (one by one and on a contact sheet) and snapshot them, open a state listed in meta.ts,
-// then stop and delete the session. Run by .github/workflows/smoke.yml on Windows, Linux and macOS.
+// print a variant's handoff checklist, then stop and delete the session. Run by
+// .github/workflows/smoke.yml on Windows, Linux and macOS.
 import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { get } from 'node:http'
@@ -152,6 +153,32 @@ proto(['shoot', 'hero', '--state', 'open', '--sheet'])
 if (!pngs(shots).includes('hero-open-sheet.png')) fail('proto shoot hero --state open --sheet wrote no hero-open-sheet.png')
 cpSync(shots, keepShots, { recursive: true })
 
+// The checklist for building hero/A into the codebase, read from its files: its states, its
+// click with the line it is on, and where its Try it list is.
+const handoff = proto(['handoff', 'hero/A'])
+if (!/^- \[ \] Panel \(`hero\/A\/open`\): The panel, open\./m.test(handoff)) fail('proto handoff did not list the state Panel')
+if (!/^- \[ \] `onClick=\{\(\) => setOpen\(true\)\}` · A\.tsx:6\b/m.test(handoff)) fail('proto handoff did not list the click on A.tsx:6')
+if (!/useHints.* · A\.tsx:5\b/.test(handoff)) fail('proto handoff did not point at the Try it list on A.tsx:5')
+if (!/proto shoot hero\/A --ref \S+ --as built/.test(handoff)) fail('proto handoff did not end with the shoot that checks the build')
+proto(['handoff', 'hero/Z'], { ok: false })
+// A `/*` or `//` inside a string (a glob, a URL) is not a comment: the lines after it still count.
+writeFileSync(join(app, 'src', 'protos', 'home', 'A.tsx'), [
+  'const icons = import.meta.glob(\'./icons/*.svg\', { eager: true })',
+  'const docs = \'https://example.com/guide // not a comment\'',
+  'export default function A() {',
+  '  return <a href={docs} data-shoot="go" onClick={() => console.log(icons)} className="transition-colors">Go</a>',
+  '}',
+  // A comment opened at a line's very end, with a blank line in it, runs to its `*/`.
+  'const old = <div>{/*',
+  '',
+  '  <p className="animate-spin">gone</p>',
+  '*/}</div>',
+].join('\n'))
+const globbed = proto(['handoff', 'home/A'])
+if (!/`onClick=\{\(\) => console\.log\(icons\)\}` · A\.tsx:4\b/.test(globbed)) fail('a glob string (./icons/*.svg) hid the click after it from proto handoff')
+if (!/`transition-colors` · A\.tsx:4\b/.test(globbed)) fail('a glob string (./icons/*.svg) hid the motion after it from proto handoff')
+if (/animate-spin/.test(globbed)) fail('proto handoff listed a class from inside a comment that opened at a line\'s end')
+
 proto(['snap', 'hero/A'])
 if (!existsSync(join(app, '.proto', 'snaps', 'hero-A.jsx'))) fail('proto snap wrote no hero-A.jsx')
 
@@ -168,6 +195,11 @@ const size = `${head.readUInt32BE(16)}x${head.readUInt32BE(20)}`
 if (size !== '1206x2622') fail(`phone-A-screen.png is ${size}, not the 402x874 screen at 3x (1206x2622)`)
 if (!existsSync(join(shots, 'phone-A-vs-ref.png'))) fail('proto shoot --ref wrote no phone-A-vs-ref.png')
 if (pngs(shots).some(f => /^phone-A-(desktop|mobile)\.png$/.test(f))) fail('proto shoot --ref should write only the screen and the sheet')
+// The same sheet against the variant as built: written beside the reference's, which stays.
+proto(['shoot', 'phone/A', '--as', 'built'], { ok: false })
+proto(['shoot', 'phone/A', '--ref', '.proto/shots/hero-A-desktop.png', '--as', 'built'])
+if (!existsSync(join(shots, 'phone-A-vs-built.png'))) fail('proto shoot --as built wrote no phone-A-vs-built.png')
+if (!existsSync(join(shots, 'phone-A-vs-ref.png'))) fail('proto shoot --as built removed phone-A-vs-ref.png')
 
 // Comments from the page: a batch with a screenshot goes in through the server, is taken by
 // `proto inbox` (a directory rename, which Windows can refuse), shown with its image on disk,
