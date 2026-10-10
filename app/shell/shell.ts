@@ -232,6 +232,10 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   // An overview lists under a variant everything built from it, whether it nests there or
   // takes that variant as one of its others; the tree (columns, lobby) follows kidsOf only.
   const builtFrom = (p: Proto, v: string) => active().filter(k => k !== p && sources(k).some(s => s.p === p && s.v === v))
+  // Built from the prototype as a whole (or from a variant it no longer has), as what it nests
+  // under or as one of the others: the overview lists these under its title, as the grid lists
+  // the rest under each variant. The tree's looseKids still follows the first parent only.
+  const wholeKids = (p: Proto) => active().filter(k => k !== p && sources(k).some(s => s.p === p && !p.variants.some(v => v.id === s.v)))
   // Built from the prototype as a whole, or from a variant that no longer exists.
   const looseKids = (p: Proto) => kidsOf(p).filter(k => !p.variants.some(v => v.id === k.from!.variant))
   const family = (p: Proto, depth = 1): { p: Proto; depth: number }[] =>
@@ -710,7 +714,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     const grid = protoGrid(p)
     const tab = (on: boolean, act: string, icon: string, label: string) => `<button data-act="${act}" aria-pressed="${on}" title="${label}" class="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs ${on ? TAB_ON : TAB_OFF}">${ic(icon, 'size-3.5')}<span class="hidden sm:inline">${label}</span></button>`
     const layoutToggle = `<div class="flex gap-0.5 rounded-lg bg-zinc-900/[.04] p-0.5 dark:bg-white/[.06]">${tab(!st.stack, 'stack:0', 'grid', 'Grid')}${tab(st.stack, 'stack:1', 'rows', 'Full size')}</div>`
-    return `<div class="flex flex-wrap items-end justify-between gap-2 px-4 pt-5 sm:px-6"><div class="min-w-0">${sources(p).length ? `<div class="mb-2 flex flex-wrap gap-1.5">${fromChips(p)}</div>` : ''}<h2 class="flex items-center gap-2 text-xl font-semibold tracking-tight">${bd(p.title)}${pickOf(p) ? `<span class="inline-flex h-6 items-center gap-1 rounded-full bg-emerald-500/10 px-2 text-xs font-semibold tracking-normal ${PICK}">${ic('check', 'size-3.5')}Picked ${esc(pickOf(p))}</span>` : ''}</h2><p class="text-xs text-zinc-500">${p.ask ? `<bdi>“${esc(p.ask)}”</bdi> · ` : ''}${p.variants.length} variant${p.variants.length === 1 ? '' : 's'} · ${clock(p.created)}</p></div>${p.variants.length ? layoutToggle : '<p class="text-xs text-zinc-400">No variants yet</p>'}</div>
+    return `<div class="flex flex-wrap items-end justify-between gap-2 px-4 pt-5 sm:px-6"><div class="min-w-0">${sources(p).length ? `<div class="mb-2 flex flex-wrap gap-1.5">${fromChips(p)}</div>` : ''}<h2 class="flex items-center gap-2 text-xl font-semibold tracking-tight">${bd(p.title)}${pickOf(p) ? `<span class="inline-flex h-6 items-center gap-1 rounded-full bg-emerald-500/10 px-2 text-xs font-semibold tracking-normal ${PICK}">${ic('check', 'size-3.5')}Picked ${esc(pickOf(p))}</span>` : ''}</h2><p class="text-xs text-zinc-500">${p.ask ? `<bdi>“${esc(p.ask)}”</bdi> · ` : ''}${p.variants.length} variant${p.variants.length === 1 ? '' : 's'} · ${clock(p.created)}</p>${wholeKids(p).length ? `<div class="mt-2 flex flex-wrap gap-1.5">${wholeKids(p).map(k => `<button data-act="lobby:proto:${esc(k.id)}" class="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${NEST}">${ic('branch', 'size-3.5')}<span dir="auto" class="truncate">${esc(k.title)}</span></button>`).join('')}</div>` : ''}</div>${p.variants.length ? layoutToggle : '<p class="text-xs text-zinc-400">No variants yet</p>'}</div>
       ${st.stack ? stack(p) : grid}`
   }
 

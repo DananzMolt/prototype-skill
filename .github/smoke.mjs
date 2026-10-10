@@ -86,6 +86,9 @@ proto(['add', 'combo', '--title', 'Combined', '--from', 'home/A,hero/B', '--vari
 if (!metaOf('combo').includes('"from": "home/A"') || !/"also": \[\s*"hero\/B"\s*\]/.test(metaOf('combo'))) fail('combo/meta.ts should have "from": "home/A" and "also": ["hero/B"]')
 proto(['add', 'hero', '--from', 'home/A,combo/A'], { ok: false })
 proto(['add', 'mix', '--from', 'home/A,hero/Z', '--variants', 'A:x'], { ok: false })
+// Another prototype as a whole is kept without a letter (hero's overview lists it in its header).
+proto(['add', 'whole', '--title', 'All of hero', '--from', 'home/A,hero', '--variants', 'A:x'])
+if (!/"also": \[\s*"hero"\s*\]/.test(metaOf('whole'))) fail('whole/meta.ts should have "also": ["hero"]')
 // From the picks: every picked variant, oldest prototype first; an archived one is left out.
 proto(['add', 'old', '--title', 'Dropped', '--variants', 'A:x'])
 proto(['pick', 'old', 'A'])
