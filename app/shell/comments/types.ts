@@ -6,9 +6,10 @@ export type Box = { x: number; y: number; w: number; h: number }
 /**
  * What a comment is on, or tags. `selector` finds it again from the variant's mount (it holds
  * across hot reloads while the structure does); `rect` is where it was, in CSS px from the
- * variant root's top left, which is what the agent is told.
+ * variant root's top left, which is what the agent is told. A comment pinned with a long press
+ * has a `point` too, in the same px: the spot itself, with the element under it for context.
  */
-export type Target = { label: string; selector: string; shoot?: string; src?: string; tag: string; text: string; rect: Box }
+export type Target = { label: string; selector: string; shoot?: string; src?: string; tag: string; text: string; rect: Box; point?: { x: number; y: number } }
 
 /** A comment's words: text, and tags (an index into the comment's `tags`) between. */
 export type Seg = string | { tag: number }

@@ -559,8 +559,9 @@ function printBatch(dir, b) {
   for (const c of b.comments) {
     console.log(`\n${c.n}. ${c.route}`)
     console.log(`   ${c.text.split('\n').join('\n   ')}`)
-    if (c.target) console.log(`   on: ${where(c.target)}`)
-    else if (c.point) console.log(`   at: ${c.point.x},${c.point.y}`)
+    // A comment pinned with a long press is on a spot; its element is only where that spot is.
+    if (c.point) console.log(`   at: ${c.point.x},${c.point.y} (a spot, pinned with a long press)`)
+    if (c.target) console.log(`   ${c.point ? 'in' : 'on'}: ${where(c.target)}`)
     for (const t of c.tags || []) console.log(`   with: ${where(t)}`)
     for (const img of c.images || []) console.log(`   image: ${join(inboxDir(dir), 'taken', b.id, img.file)}${img.name ? `  (${img.name})` : ''}`)
   }

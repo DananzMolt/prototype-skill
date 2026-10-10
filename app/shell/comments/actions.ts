@@ -84,6 +84,7 @@ export function createActions(store: Store, host: Host) {
         comments: drafts.map(i => ({
           route: routeOf(i),
           text: plain(i),
+          ...(i.target.point ? { point: i.target.point } : {}),
           target: i.target,
           ...(i.tags.length ? { tags: i.tags } : {}),
           ...(i.shot ? { images: [{ dataUrl: i.shot, name: 'marked up' }] } : {}),

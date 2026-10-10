@@ -66,6 +66,23 @@ export function describe(mount: HTMLElement, el: HTMLElement): Target {
   }
 }
 
+/** A spot pinned with a long press, at screen point (cx, cy), with the element under it. */
+export function spot(mount: HTMLElement, el: HTMLElement, cx: number, cy: number): Target {
+  const t = describe(mount, el), o = originOf(mount).getBoundingClientRect(), z = zoomOf(mount)
+  return { ...t, label: `Spot on ${t.label}`, point: { x: Math.round((cx - o.left) / z), y: Math.round((cy - o.top) / z) } }
+}
+
+/**
+ * Where a pinned spot is now (see `rel`), as an empty box: its element's live box plus where in
+ * it the spot was, so it moves with the element. Null when the spot is scrolled out of view.
+ */
+export function spotAt(t: Target, el: Element, mount: HTMLElement, host: Element): Box | null {
+  if (!t.point) return null
+  const b = rel(el, host), m = rel(mount, host), z = zoomOf(mount)
+  const x = b.x + (t.point.x - t.rect.x) * z, y = b.y + (t.point.y - t.rect.y) * z
+  return x >= m.x && x <= m.x + m.w && y >= m.y && y <= m.y + m.h ? { x, y, w: 0, h: 0 } : null
+}
+
 export function find(mount: HTMLElement | null, t: Pick<Target, 'selector'>): HTMLElement | null {
   try { return mount ? mount.querySelector<HTMLElement>(t.selector) : null } catch { return null }
 }
