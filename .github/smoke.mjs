@@ -199,6 +199,21 @@ state = await (await fetch(`${local}__proto/status`)).json()
 if (state.inbox.batches.find(b => b.id === batch)?.state !== 'done') fail('the batch is not done after replying to all of it')
 proto(['reply', 'nope/1', 'x'], { ok: false })
 if ((await fetch(`${local}__proto/comments`, { method: 'POST', body: '{"comments":[{"route":"BAD","text":"x"}]}' })).status !== 400) fail('a comment with a bad route was accepted')
+
+// A decision made in the page is a comment with an action. A pick is marked by the server at once
+// (meta.ts, and the working variant with "Picked B" in its history), before the agent reads it;
+// taking it back unmarks it. The inbox prints the action.
+await send([{ route: 'hero/B', text: 'Picked B', action: 'pick' }])
+if (!readFileSync(heroMeta, 'utf8').includes('"picked": "B"')) fail('a pick from the page did not mark hero/meta.ts')
+const picked = JSON.parse(readFileSync(join(app, 'session.json'), 'utf8'))
+if (picked.work?.proto !== 'hero' || picked.work.variant !== 'B' || picked.asks?.['hero/B']?.at(-1)?.text !== 'Picked B') fail(`a pick from the page should make hero/B the working variant with "Picked B": ${JSON.stringify(picked.work)} ${JSON.stringify(picked.asks?.['hero/B'])}`)
+if (!/^ {3}action: pick\b/m.test(proto(['inbox']))) fail('proto inbox did not print the pick with action: pick')
+await send([{ route: 'hero/B', text: 'Unpicked B', action: 'unpick' }, { route: 'hero/B', text: 'More like B: warmer', action: 'more' }])
+if (readFileSync(heroMeta, 'utf8').includes('"picked"')) fail('taking the pick back in the page left it in hero/meta.ts')
+if (!/action: more/.test(proto(['inbox']))) fail('proto inbox did not print action: more')
+for (const bad of [{ route: 'hero/Z', text: 'x', action: 'pick' }, { route: 'hero/B', text: 'x', action: 'dance' }, { route: 'hero', text: 'x', action: 'build' }]) {
+  if ((await fetch(`${local}__proto/comments`, { method: 'POST', body: JSON.stringify({ comments: [bad] }) })).status !== 400) fail(`an action that can't be done was accepted: ${JSON.stringify(bad)}`)
+}
 // Listening: --wait exits, printing the batch, once another one lands.
 const waiter = spawn(process.execPath, [join(skill, 'scripts', 'proto.mjs'), 'inbox', '--wait', '--project', project, '--session', 'smoke'], { stdio: ['ignore', 'pipe', 'pipe'] })
 let heard = ''

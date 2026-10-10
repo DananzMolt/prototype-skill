@@ -13,7 +13,7 @@ import { dock, edge, smooth, runDock, restoreEdgeLabels, stageHover, installPoin
 import { hints, fillField, type Hint } from './hints'
 import { createSheet, createMenuSheet } from './sheet'
 import { createSpotlight, showable, showIcon, whereIs } from './spotlight'
-import { createComments } from './comments/index'
+import { createComments, type Subject } from './comments/index'
 import { tabIcon } from './favicon'
 
 export type Variant = { id: string; name: string; file: string; load: () => Promise<unknown> }
@@ -42,9 +42,10 @@ export type Inbox = {
 /** An element a comment is on or tags. Rect is in CSS px from the variant root's top left; src and
  *  component say where it is written (`today/parts.tsx:30`, `PriceCard`). */
 export type Pinned = { selector?: string; shoot?: string; src?: string; component?: string; tag?: string; text?: string; rect?: { x: number; y: number; w: number; h: number } }
-/** One send: route is <slug>/<letter>[/<state>]; images are data URLs (png, jpeg, webp). */
+/** One send: route is <slug>/<letter>[/<state>]; images are data URLs (png, jpeg, webp). A decision
+ *  on a variant (pick, unpick, more, build) is a comment with an action and no target. */
 export type CommentBatch = {
-  comments: { route: string; text: string; point?: { x: number; y: number }; target?: Pinned; tags?: Pinned[]; images?: { dataUrl: string; name?: string }[] }[]
+  comments: { route: string; text: string; action?: 'pick' | 'unpick' | 'more' | 'build'; point?: { x: number; y: number }; target?: Pinned; tags?: Pinned[]; images?: { dataUrl: string; name?: string }[] }[]
   viewport?: { w: number; h: number; phone?: boolean }
   theme?: 'light' | 'dark'
 }
@@ -320,6 +321,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     <div data-sheet></div>
     <div data-menu-sheet></div>
     <div data-comments-sheet></div>
+    <div data-decide></div>
   </div>`
   const side = root.querySelector<HTMLElement>('[data-side]')!
   const grip = root.querySelector<HTMLElement>('[data-grip]')!
@@ -800,8 +802,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       <div class="relative shrink-0"><button data-act="open:session" aria-label="Session" aria-expanded="${st.open === 'session'}" title="${esc(session.name)}" class="${IB} ${st.open === 'session' ? ON : ''}"><span class="relative grid size-5 shrink-0 place-items-center rounded bg-zinc-900 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-900">${initial}<span class="absolute -right-1 -top-1 flex rounded-full ring-2 ring-white dark:ring-zinc-950">${pulse('size-2', st.live && !st.stopped)}</span></span></button>${pop(st.open === 'session', sessionMenu, 'left-0 top-11 w-[22rem] max-w-[calc(100vw-1rem)]')}</div>
       ${switcher}
       <div class="ml-auto flex shrink-0 items-center gap-1">
-        ${stepper}${stepper && commentHost() ? '<span class="mx-1 h-5 w-px bg-black/10 dark:bg-white/10"></span>' : ''}
-        ${commentBtn()}
+        ${stepper}${stepper && (commentHost() || decideOf()) ? '<span class="mx-1 h-5 w-px bg-black/10 dark:bg-white/10"></span>' : ''}
+        ${commentBtn()}${decideBtn()}
         ${phones ? `<div class="relative"><button data-act="open:scale" aria-expanded="${st.open === 'scale'}" class="${IB} text-xs tabular-nums ${st.open === 'scale' ? 'bg-zinc-900/5 text-zinc-900 dark:bg-white/10 dark:text-white' : ''}">${ic('phone')}<span data-scale-label>${scaleLabel()}</span></button>${pop(st.open === 'scale', scaleMenu, 'right-0 top-11 w-72')}</div>` : ''}
       </div></div>`)
     menus = { protos: drill(), session: sessionBody }
@@ -889,6 +891,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     paintIcon()
     paintHints()
     paintPill()
+    paintDecide()
   }
 
   // ---------- the variant pill (phones) ----------
@@ -953,6 +956,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       title: p?.title ?? '',
       rows: vs.map(v => ({ id: v.id, name: v.name, on: v.id === vid, picked: v.id === (p ? pickOf(p) : ''), editing: !!p && editing(p.id, v.id) })),
       lobby: st.place.view === 'proto',
+      decide: (d => d && comments.decideIn(d))(decideOf()),
       onClose: () => { st.sheet = false; render() },
       onPick: id => { st.sheet = false; if (p) go(keepIn(p, id)); render() },
       onLobby: () => { st.sheet = false; if (p) go({ view: 'proto', proto: p.id }); render() },
@@ -1309,7 +1313,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       case 'asks': st.asks = !st.asks; return render()
       case 'variant': return go(keepIn(p!, arg))
       case 'step': return step(Number(arg))
-      case 'open': st.open = st.open === arg ? null : arg; st.copied = false; recenter = true; if (arg === 'session') refreshStatus(); return render()
+      case 'open': st.open = st.open === arg ? null : arg; st.copied = false; recenter = true; if (arg === 'session' || arg === 'decide') refreshStatus(); return render()
       case 'archived': st.archived = !st.archived; return render()
       case 'work': {
         const w = workOf()
@@ -1388,6 +1392,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     else if (e.key === 'c' && commentHost()) { e.preventDefault(); toggleComment() }
     else if (e.key === 'f' && st.place.view === 'variant') act(st.focus ? 'unfocus' : 'focus', '', '')
     else if (e.key === 'w' && workOf()) act('work', 'go', '')
+    else if (e.key === 'p' && decideOf() && !st.focus && !phoneMq.matches) act('open', 'decide', '')
   })
 
   // ---------- resizing the sidebar ----------
@@ -1485,6 +1490,31 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
     render()
   })
   phoneMq.addEventListener('change', () => paintHints())
+
+  // ---------- deciding: Pick, More like this, Build it ----------
+  // The variant on screen can be picked, or followed by more like it, or built, from the page
+  // (comments/decide.tsx); each reaches Claude as a comment, and a pick is marked by the server at
+  // once. A wide page has them behind the bar's check button (or P), next to Comment; a phone at the
+  // top of the variant sheet, since its pill has no room for one more button.
+  function decideOf(): Subject | null {
+    const p = cur(), pl = st.place
+    const v = p && pl.view === 'variant' ? p.variants.find(x => x.id === pl.variant) : undefined
+    return p && v ? { proto: p.id, variant: v.id, name: v.name, picked: pickOf(p) === v.id } : null
+  }
+  function decideBtn() {
+    const d = decideOf()
+    if (!d) return ''
+    const on = st.open === 'decide'
+    const say = d.picked ? `Picked ${d.variant} · take it back, or ask for more like it` : 'Pick this design, or ask for more like it'
+    return `<button data-act="open:decide" data-decide-btn aria-haspopup="menu" aria-expanded="${on}" aria-label="${say}" title="${say} · P" class="${IB} ${on ? ON : ''} ${d.picked ? '!text-emerald-600 dark:!text-emerald-400' : ''}">${ic('check')}</button>`
+  }
+  const drawDecide = comments.mountDecide(root.querySelector<HTMLElement>('[data-decide]')!)
+  // The button is redrawn with the bar, so the menu finds it again each time it is drawn.
+  const paintDecide = () => drawDecide({
+    open: st.open === 'decide', subject: decideOf(),
+    anchor: () => { const b = bar.querySelector<HTMLElement>('[data-decide-btn]'); return b?.offsetParent ? b : null },
+    onClose: () => { if (st.open === 'decide') { st.open = null; render() } },
+  })
 
   // ---------- the side panel: comments, and Try it ----------
   // One panel, two tabs. Docked it narrows the stage; narrower it is a sheet over the design;
@@ -1698,9 +1728,17 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   }
   /** Sends comments to the session's agent. Resolves to the batch's id; throws with the server's reason. */
   async function sendBatch(batch: CommentBatch): Promise<string> {
-    const res = await fetch('/__proto/comments', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: st.dark ? 'dark' : 'light', ...batch }) })
-    const body = await res.json()
-    if (!res.ok) throw new Error(body.error || `the server answered ${res.status}`)
+    // A pick made here moves the working variant too. That move is the user's own, so the strip
+    // doesn't offer it back as one Claude made; a send that fails moved nothing, so it is unsaid.
+    const picked = batch.comments.find(c => c.action === 'pick')?.route.split('/')
+    const moves = !!picked && !same(session.work, { proto: picked[0], variant: picked[1] })
+    if (moves) selfMove = true
+    let res: Response, body: { error?: string; sent: string } & Status
+    try {
+      res = await fetch('/__proto/comments', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: st.dark ? 'dark' : 'light', ...batch }) })
+      body = await res.json()
+    } catch (e) { if (moves) selfMove = false; throw e }
+    if (!res.ok) { if (moves) selfMove = false; throw new Error(body.error || `the server answered ${res.status}`) }
     st.status = body
     render()
     return body.sent

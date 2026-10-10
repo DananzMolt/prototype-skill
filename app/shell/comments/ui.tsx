@@ -1,7 +1,7 @@
 // Small pieces the comment layer shares: icons (the shell's own set plus the comment tools), the
 // primary color classes (placeholder tokens in shell.css), and a few text pieces.
 import type { ReactNode } from 'react'
-import type { CState, Item, Seg, Target } from './types'
+import type { Action, CState, Item, Seg, Target } from './types'
 
 const PATHS: Record<string, string> = {
   chev: 'M6 9l6 6 6-6', right: 'M9 6l6 6-6 6', left: 'M15 6l-6 6 6 6',
@@ -16,6 +16,7 @@ const PATHS: Record<string, string> = {
   undo: 'M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3', trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
   target: 'M12 3v4M12 17v4M3 12h4M17 12h4M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
   plus: 'M12 6v12M6 12h12', up: 'M12 19V5M6 11l6-6 6 6', branch: 'M6 3v8a4 4 0 0 0 4 4h8M14 11l4 4-4 4',
+  more: 'M9 9h11v11H9zM5 15V4h11', code: 'M9 7l-5 5 5 5M15 7l5 5-5 5',
 }
 export function Icon({ name, className = 'size-4' }: { name: string; className?: string }) {
   return <svg className={`${className} shrink-0`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={PATHS[name]} /></svg>
@@ -73,6 +74,16 @@ export const Chip = ({ t }: { t?: Target }) => <span title={srcOf(t)?.full} clas
 export function Body({ c, className = '' }: { c: { body: Seg[]; tags: Target[] }; className?: string }): ReactNode {
   return <span dir="auto" className={className}>{c.body.map((s, i) => typeof s === 'string' ? <span key={i}>{s}</span> : <Chip key={i} t={c.tags[s.tag]} />)}</span>
 }
+
+/** A decision on a variant: what it says (to the agent, and as its line in the list) and its icon. */
+export const ACTION: Record<Action, { say: (v: string) => string; icon: string }> = {
+  pick: { say: v => `Picked ${v}`, icon: 'check' },
+  unpick: { say: v => `Unpicked ${v}`, icon: 'undo' },
+  more: { say: v => `More like ${v}`, icon: 'more' },
+  build: { say: v => `Build ${v}`, icon: 'code' },
+}
+/** What a row of the list is about: the element a comment is on, or what a decision asked. */
+export const aboutOf = (i: Item) => i.action ? ACTION[i.action].say(i.variant) : i.target?.label ?? ''
 
 /** The words of a comment as plain text, tags written as @Name: what the agent reads. */
 export const plain = (c: { body: Seg[]; tags: Target[] }) => c.body.map(s => typeof s === 'string' ? s : `@${c.tags[s.tag]?.label ?? '?'}`).join('').replace(/ /g, ' ').trim()

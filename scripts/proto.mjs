@@ -556,12 +556,21 @@ const where = e => {
   const code = e.src ? `  src/protos/${e.src}${e.component ? ` (${e.component})` : ''}` : ''
   return [`<${e.tag || '?'}>`, e.text && `"${e.text.replace(/\s+/g, ' ').slice(0, 80)}"`, name].filter(Boolean).join(' ') + r + code
 }
+// A decision made on a variant in the page comes as a comment with an action and no element; the
+// line under it says what is already done and what is left for the agent.
+const ACTIONS = {
+  pick: 'already marked in the page, and now the working variant',
+  unpick: 'the pick is already taken off in the page',
+  more: 'new variants in this prototype, named after this one',
+  build: 'build this variant into the codebase',
+}
 function printBatch(dir, b) {
   const vp = b.viewport ? ` · page ${b.viewport.w}x${b.viewport.h}${b.viewport.phone ? ' (phone)' : ''}` : ''
   console.log(`batch ${b.id} · ${b.comments.length} comment${b.comments.length === 1 ? '' : 's'}${vp} · ${b.theme}`)
   for (const c of b.comments) {
     console.log(`\n${c.n}. ${c.route}`)
     console.log(`   ${c.text.split('\n').join('\n   ')}`)
+    if (c.action) console.log(`   action: ${c.action}${ACTIONS[c.action] ? ` (${ACTIONS[c.action]})` : ''}`)
     // A comment pinned with a long press is on a spot; its element is only where that spot is.
     if (c.point) console.log(`   at: ${c.point.x},${c.point.y} (a spot, pinned with a long press)`)
     if (c.target) console.log(`   ${c.point ? 'in' : 'on'}: ${where(c.target)}`)

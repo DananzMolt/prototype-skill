@@ -1,16 +1,17 @@
-// The comment layer, as the shell sees it: one store, one set of actions, and three React roots
-// the shell places (over the stage, in the side panel, the phone's sheet). Everything else the
-// shell needs from it (counts for the bar, the key, Esc) is on what this returns.
+// The comment layer, as the shell sees it: one store, one set of actions, and the React roots the
+// shell places (over the stage, in the side panel, the phone's sheet, the bar's decision menu).
+// Everything else the shell needs from it (counts for the bar, the key, Esc) is on what this returns.
 import { createRoot } from 'react-dom/client'
 import type { Inbox } from '../shell'
 import { createActions } from './actions'
 import { CommentsCtx, type Ctx, type Host } from './ctx'
+import { Decide, DecidePop, type DecidePopProps, type Subject } from './decide'
 import { Layer } from './layer'
 import { PhoneSheet, Rail } from './rail'
 import { createStore, progress } from './store'
 import type { Place, State } from './types'
 
-export type { Place, State }
+export type { DecidePopProps, Place, State, Subject }
 
 export function createComments(host: Host, sessionId: string) {
   const store = createStore(sessionId)
@@ -23,6 +24,10 @@ export function createComments(host: Host, sessionId: string) {
     act,
     mountRail(el: HTMLElement) { createRoot(el).render(wrap(<Rail />)) },
     mountSheet(el: HTMLElement) { createRoot(el).render(wrap(<PhoneSheet />)) },
+    /** The bar's Pick, More and Build menu, mounted once; the returned function draws it with new props. */
+    mountDecide(el: HTMLElement) { const root = createRoot(el); return (p: DecidePopProps) => root.render(wrap(<DecidePop {...p} />)) },
+    /** The same choices for the phone's variant sheet, which renders them in its own root. */
+    decideIn: (subject: Subject) => wrap(<Decide key={`${subject.proto}/${subject.variant}`} subject={subject} sheet />),
     setPlace: act.setPlace,
     setInbox(inbox: Inbox | undefined) { store.set({ inbox }) },
     /** Comments waiting to be sent, and open (sent, not yet done) ones, per variant: for the bar and the tree. */
@@ -32,7 +37,8 @@ export function createComments(host: Host, sessionId: string) {
       let drafts = 0
       for (const i of s.items) {
         if (!i.sent) drafts++
-        if (progress(i, s.inbox).state === 'done') continue
+        // A pick is made the moment it is sent; only what still needs Claude counts as open.
+        if (progress(i, s.inbox).state === 'done' || i.action === 'pick' || i.action === 'unpick') continue
         const k = `${i.proto}/${i.variant}`
         by.set(k, (by.get(k) ?? 0) + 1)
       }
