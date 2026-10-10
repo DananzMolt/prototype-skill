@@ -95,14 +95,15 @@ export function Decide({ subject, sheet = false, onDone }: { subject: Subject; s
   const pickLabel = picked ? `Picked ${v}` : `Pick ${v}`
   const pickTitle = picked ? 'Picked. Choose it again to take the pick back' : 'Mark this design as the one, now'
   if (sheet) {
-    const btn = 'inline-flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl text-[13px] font-medium ring-1 ring-inset disabled:opacity-50'
+    // Labels stay whole (a word cut short reads as broken) and the buttons stay 44 px tall for a thumb.
+    const btn = 'inline-flex h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl text-[13px] font-medium ring-1 ring-inset disabled:opacity-50'
     const quiet = `${btn} bg-white text-zinc-700 ring-black/[.08] active:bg-zinc-50 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-white/10 dark:active:bg-zinc-700`
     return (
       <div className="px-1">
         <p className="flex min-w-0 items-center gap-1.5 px-1 pb-2 text-xs text-zinc-500"><b className="font-semibold text-zinc-700 dark:text-zinc-200">{v}</b><span dir="auto" className="truncate">{subject.name}</span></p>
         <div className="flex gap-1.5">
           <button onClick={() => send(picked ? 'unpick' : 'pick')} disabled={busy} aria-pressed={picked} aria-label={pickTitle} className={`shrink-0 px-3 ${picked ? `${btn} bg-emerald-500/10 text-emerald-700 ring-emerald-500/30 dark:text-emerald-300` : quiet}`}><Icon name="check" className="size-4" />{picked ? 'Picked' : 'Pick'}</button>
-          <button onClick={() => setAsk('more')} className={`flex-1 px-2 ${quiet}`}><Icon name="more" className="size-4" /><span className="truncate">More like this</span></button>
+          <button onClick={() => setAsk('more')} className={`flex-1 px-2 ${quiet}`}><Icon name="more" className="size-4" />More like this</button>
           <button onClick={() => setAsk('build')} className={`shrink-0 px-3 ${quiet}`}><Icon name="code" className="size-4" />Build it</button>
         </div>
         {oops}
