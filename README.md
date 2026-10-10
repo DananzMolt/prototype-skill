@@ -93,14 +93,18 @@ Or just ask for "a few versions of the settings drawer". Keep talking in the sam
 
 <p align="center">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/grid-dark.png">
-  <img src="docs/images/grid-light.png" alt="Every variant of a prototype side by side" width="49%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/variant-dark.png">
+  <img src="docs/images/variant-light.png" alt="A variant of a revenue dashboard, with the session's prototypes and variants in columns in the sidebar">
 </picture>
+<br><sub>A variant, with every prototype and variant of the session in the sidebar.</sub>
+</p>
+
+<p align="center">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/states-dark.png">
-  <img src="docs/images/states-light.png" alt="Two variants compared in the same state" width="49%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/comments-dark.png">
+  <img src="docs/images/comments-light.png" alt="A comment being written on the date range, and another ready to send in the Comments panel">
 </picture>
-<br><sub>Every variant side by side, and two of them compared in the same state.</sub>
+<br><sub>Comments on the design go to Claude, who makes the change and replies.</sub>
 </p>
 
 ## How it works
