@@ -7,7 +7,9 @@
 //             [--from-picks]   built from every variant the user picked in this session
 //   proto shoot [route…] [--theme dark] [--focus] [--click <css>]  screenshots, e.g. hero hero/A hero/A/open
 //             [--ref <png>]   instead, the variant's screen beside that screenshot of the real one
+//             [--as built]    with --ref: the png is the variant built in the codebase (<route>-vs-built.png)
 //   proto shoot [slug…] --sheet [--state <id>] [--theme dark]   every variant on one contact sheet per prototype
+//   proto handoff <slug>/<letter>   a checklist of what that variant has, for building it into the codebase
 //   proto snap <slug>[/<letter>]… [--width 672]   static HTML snapshots for a Claude Doc
 //   proto pick <slug> <letter> [--off]   the user chose this variant: marked in the page
 //   proto work <slug>/<letter> [--ask "…"] [--off]   the variant being worked on: pinned in the page
@@ -24,7 +26,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const SKILL = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -499,6 +501,12 @@ async function shoot() {
     if (!ref) die(`--ref: no file ${flags.ref} here or in ${tilde(dir)}`)
     extra.push(`--ref=${ref}`)
   }
+  // The same sheet for the variant once it is built: the png is the real screen as built.
+  if (flags.as !== undefined) {
+    if (flags.as !== 'built') die('--as has one value: --as built')
+    if (!flags.ref) die('--as built compares with a screenshot of the built screen: --ref <png> --as built')
+    extra.push('--as=built')
+  }
   // --click can repeat: each selector is clicked in order before the shot.
   argv.forEach((a, i) => { if (a === '--click' && argv[i + 1]) extra.push(`--click=${argv[i + 1]}`); else if (a.startsWith('--click=')) extra.push(a) })
   // `--sheet hero` reads as the flag's value, so a string there is one more prototype. The list
@@ -589,6 +597,237 @@ function rtlCheck(dir, routes) {
     })
     if (hits.length) console.error(`rtl: ${slug} is right to left; physical sides to check (start/end unless inside a dir="ltr" island):\n${hits.slice(0, 15).join('\n')}${hits.length > 15 ? `\n  … ${hits.length - 15} more` : ''}`)
   }
+}
+
+// ---------- handoff ----------
+// A variant built into the codebase loses what nobody listed (a drag's tilt, a shade behind a
+// sheet, a spring), so `handoff` lists what the variant has as lines to tick, each with where it
+// is. It reads the files alone: the same files print the same list, with the server up or not.
+const SOURCE = /\.(?:tsx?|jsx?|vue|css)$/
+// The variant's file, then what it imports from its folder (`./parts`), followed from file to file.
+// A variant built from others imports their files too (`../today-card/shared`), so any file under
+// src/protos counts; what is outside (`../../hints`, `@project/…`) is not the variant's code.
+function variantFiles(protos, first) {
+  const files = [{ file: first }]
+  for (let i = 0; i < files.length; i++) {
+    for (const m of readFileSync(files[i].file, 'utf8').matchAll(/\b(?:import|export)\s+(type\s+)?[^'";]*?\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\bimport\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
+      // A type draws nothing: `import type { CardState } from '../week-cards/board'` brings no code.
+      if (m[1]) continue
+      const base = resolve(dirname(files[i].file), m[2] ?? m[3])
+      const f = [base, ...['tsx', 'ts', 'jsx', 'js', 'vue', 'css'].map(x => `${base}.${x}`), ...['tsx', 'ts', 'jsx', 'js'].map(x => join(base, `index.${x}`))]
+        .find(x => SOURCE.test(x) && existsSync(x) && statSync(x).isFile())
+      if (f && !relative(protos, f).startsWith('..') && basename(f) !== 'meta.ts' && !files.some(x => x.file === f)) files.push({ file: f, by: files[i].file })
+    }
+  }
+  return files
+}
+
+// A file's lines without their comments (a class or a word in a comment is not in the design),
+// each saying whether it is CSS and whether its text is shown: a .vue file shows its <template>
+// and styles in its <style>, a .tsx shows all of it, and a .ts helper shows nothing.
+function sourceLines(f) {
+  const kind = f.endsWith('.css') ? 'css' : f.endsWith('.vue') ? 'vue' : /\.[jt]sx$/.test(f) ? 'jsx' : 'script'
+  let block = null, until = null
+  return readFileSync(f, 'utf8').split(/\r?\n/).map((raw, i) => {
+    if (kind === 'vue' && /^<(template|script|style)\b/.test(raw)) block = raw.match(/^<(\w+)/)[1]
+    let line = raw
+    if (until) { const end = line.indexOf(until); line = end < 0 ? '' : line.slice(end + until.length); if (end >= 0) until = null }
+    line = line.replace(/\{\/\*.*?\*\/\}|\/\*.*?\*\/|<!--.*?-->/g, '').replace(/(?:^|\s)\/\/.*$/, '')
+    const open = line.match(/\/\*|<!--/)
+    if (open) { until = open[0] === '/*' ? '*/' : '-->'; line = line.slice(0, open.index) }
+    const at = { n: i + 1, line, css: kind === 'css' || block === 'style', shown: kind === 'jsx' || block === 'template' }
+    if (kind === 'vue' && /^<\/(template|script|style)>/.test(raw)) block = null
+    return at
+  })
+}
+
+// The value that starts `s`: a quoted string or a bracketed group whole, else up to a top-level
+// `;` (or `,`, which ends a property in a script but separates transitions in CSS).
+function grab(s, css) {
+  if (/^['"`]/.test(s)) { const end = s.indexOf(s[0], 1); return end < 0 ? `${s}…` : s.slice(0, end + 1) }
+  const group = /^[([{]/.test(s)
+  let depth = 0, i = 0
+  for (; i < s.length; i++) {
+    const c = s[i]
+    if ('([{'.includes(c)) depth++
+    else if (')]}'.includes(c) && --depth < 0) break
+    else if (!depth && (c === ';' || (c === ',' && !css))) break
+    if (group && !depth) { i++; break }
+  }
+  return `${s.slice(0, i).trim()}${group && depth > 0 ? '…' : ''}`
+}
+const valueAfter = (line, m, css) => grab(line.slice(m.index + m[0].length), css)
+const each = (line, re, f = m => m[0]) => [...line.matchAll(re)].map(f)
+// `prop: value` from CSS (`transition: opacity .2s;`) or a style object (`boxShadow: '0 1px …',`).
+const decls = (line, re, css) => each(line, re, m => `${m[1]}: ${valueAfter(line, m, css).replace(/^(['"`])(.*)\1$/, '$2')}`)
+// Text and code, told apart by what is in them: a line of text has letters and none of these.
+const PROSE = /^(?![?:|&.+*/,!#@-])(?!(?:return|else|break|continue|default|case|try|finally|do|import|export|const|let|var|type|interface|function|async|await|as|extends|from|new|throw)\b)[^<>{}=;()[\]`]*\p{L}[^<>{}=;()[\]`]*$/u
+// Code that still looks like text: an arrow, a condition, an assignment, a ternary, a call, a
+// template string, a chain of properties (`d.kpis.churn`), or a type (`as const satisfies …`).
+const CODE = /=>|&&|\|\||[=;`]|\s[?:]\s*$|\s\?\s|\s:\s|[\w$]\(|[a-z_$][\w$]*\.[a-z_$][\w$]+\.[a-z_$]|\bas const\b|\bsatisfies\b/
+// A comparison (`n > 0) return`, `v-if="n > 3"`) leaves a paren or a quote without its pair.
+const paired = s => (s.match(/\(/g) || []).length === (s.match(/\)/g) || []).length && (s.match(/"/g) || []).length % 2 === 0
+// Props whose words are not shown: classes, styles, drawing, links, and the browser's own.
+const NOT_COPY = /^(?:className|class|style|d|viewBox|points|transform|href|src|srcSet|sizes|type|role|id|key|ref|name|htmlFor|for|dir|lang|rel|target|xmlns|fill|stroke|accept|pattern|autoComplete|inputMode|aria-.*|data-.*|v-.*)$/
+// The classes of a className that spans lines have no code in them either, but every word has a
+// dash, a colon, a slash or a bracket, or is one of Tailwind's bare words.
+const CLASSY = /[-:/[\]]|^(?:flex|grid|block|inline|hidden|relative|absolute|fixed|sticky|truncate|transition|shadow|blur|border|rounded|ring|outline|grow|shrink|isolate|group|peer|italic|underline|uppercase|invisible|antialiased)$/
+const classy = s => s.trim().split(/\s+/).every(w => CLASSY.test(w))
+// A line that is all text (a sentence on its own line, `{name}` or `{{ n }}` in it read as …), or ''.
+// A type's member (`label: string`, `Default: string`) is code.
+function textLine(line) {
+  const t = line.trim().replace(/\{\{.*?\}\}|\{[^{}]*\}/g, '…')
+  const code = CODE.test(t) || /^['"]|,$/.test(t) || /^[a-z_$][\w$.-]*$/.test(t) || /^[a-z_$][\w$]*\??:\s|^[A-Z][\w$]*\??:\s*\S*$/.test(t)
+  return PROSE.test(t) && !code && !classy(t) ? t : ''
+}
+// A line's class-like words, each with its variants (hover:, md:, data-[open]:) and without them.
+// Text is left out first (between tags, strings that read as prose, a line of text), so "a soft
+// shadow" in the copy isn't a shadow.
+const classPart = line => textLine(line) ? '' : line.replace(/(?<![=-])>[^<>{}]*(?=<)/g, '>')
+  .replace(/(['"`])((?:(?!\1).)*)\1/g, (q, _, s) => /(?:^|\s)[A-Z\u00c0-\uffff]|[,.?](?:\s|$)/.test(s.replace(/\$\{[^}]*\}/g, '')) ? '""' : q)
+const words = line => classPart(line).split(/[\s'"`{}<>;]+/).filter(Boolean).map(w => [w, w.replace(/^(?:(?:[\w@/-]*\[[^\]]*\][\w/-]*|[\w@/-]+):)+/, '').replace(/^!|!$/g, '')])
+// The tag an attribute sits on: on its line, or a few lines up when the tag spans lines.
+function tagOf(lines, i, upTo) {
+  for (let j = i, text = lines[i].line.slice(0, upTo); j >= Math.max(0, i - 8); text = lines[--j]?.line ?? '') {
+    const tags = [...text.matchAll(/<([A-Za-z][\w.:-]*)/g)]
+    if (tags.length) return tags.at(-1)[1]
+  }
+  return ''
+}
+
+const MOTION_LIBS = /\b(?:from|import)\s*\(?\s*['"](framer-motion|motion(?:\/[\w-]+)?|@react-spring\/[\w-]+|react-spring|gsap(?:\/[\w-]+)?|@gsap\/[\w-]+|animejs|@formkit\/auto-animate(?:\/[\w-]+)?|@vueuse\/motion|@motionone\/[\w-]+|popmotion|react-transition-group)['"]/g
+const GESTURE_LIBS = /\b(?:from|import)\s*\(?\s*['"](@dnd-kit\/[\w-]+|@use-gesture\/[\w-]+|react-dnd[\w-]*|sortablejs|vuedraggable|vue-draggable-plus)['"]/g
+const MATERIAL = /^(?:backdrop-[\w[]|bg-(?:gradient|linear|radial|conic)(?:-|$)|(?:inset-|text-|drop-)?shadow(?:-|$)|(?:mix|bg)-blend-|blur(?:-|$)|bg-(?:[\w.-]+|\[[^\]]*\])\/(?:[\d.]+|\[[^\]]*\])$)/
+// What each group finds on a line, as short tokens. A token inside another on the same line (the
+// cubic-bezier in a transition) is dropped, and the line's tokens together are one finding.
+const FIND = {
+  mark: (line, css, lines, i) => each(line, /(?<![\w[-])(?::|v-bind:)?data-(?:shoot|diff)\b(?:\s*=\s*)?/g, m => {
+    const attr = m[0].replace(/\s/g, '') + (m[0].includes('=') ? valueAfter(line, m) : '')
+    const tag = tagOf(lines, i, m.index)
+    return tag ? `<${tag} ${attr}>` : attr
+  }),
+  motion: (line, css) => [
+    ...words(line).filter(([w, b]) => /^-?(?:transition(?:-|$)|(?:duration|ease|delay|animate)-)/.test(b) || /(?:^|:)(?:starting|motion-safe|motion-reduce):/.test(w)).map(([w]) => w),
+    ...decls(line, /(?<![\w-])((?:transition|animation)(?:-[a-z-]+|[A-Z][A-Za-z]*)?)\s*:\s*/g, css),
+    ...each(line, /@keyframes\s+[\w-]+|cubic-bezier\([^)]*\)|\brequestAnimationFrame\b|\btype\s*:\s*['"]spring['"]|\b(?:stiffness|damping|mass|bounce|visualDuration)\s*:\s*[\d.]+|\buse(?:Spring|Springs|SpringValue|Trail|Animate|AnimationControls)\b|(?<![\w-])v-motion[\w-]*/g),
+    ...each(line, /<(?:motion\.\w+|AnimatePresence|LayoutGroup|Reorder\.\w+|Transition|TransitionGroup|CSSTransition)\b[^>]*>?/g),
+    ...each(line, /[\w$.\])]*\.animate\(/g, m => `${m[0]}…)`),
+    ...each(line, /(?<![\w-])(?:initial|animate|exit|transition|variants|whileHover|whileTap|whileDrag|whileFocus|whileInView|layoutId)=(?=\{)/g, m => m[0] + valueAfter(line, m)),
+    ...each(line, MOTION_LIBS, m => `import '${m[1]}'`),
+  ],
+  material: (line, css) => {
+    const ws = words(line), found = ws.filter(([, b]) => MATERIAL.test(b)).map(([w]) => w)
+    // Gradient stops count only beside a gradient, so a "to-do" in the copy isn't one.
+    const stops = found.some(w => /(?:^|:)bg-(?:gradient|linear|radial|conic)/.test(w)) ? ws.filter(([, b]) => /^(?:from|via|to)-/.test(b)).map(([w]) => w) : []
+    return [
+      ...found, ...stops,
+      ...decls(line, /(?<![\w-])(-webkit-backdrop-filter|backdrop-filter|WebkitBackdropFilter|backdropFilter|box-shadow|boxShadow|text-shadow|textShadow|mix-blend-mode|mixBlendMode|filter)\s*:\s*/g, css).filter(d => !d.startsWith('filter:') || d.includes('(')),
+      // Colors only when they let something through (an alpha), and gradients.
+      ...each(line, /(?<![a-zA-Z-])(?:(?:repeating-)?(?:linear|radial|conic)-gradient|rgba|hsla|rgb|hsl|oklab|oklch|lab|lch|hwb|color-mix)(?=\()/g, m => m[0] + valueAfter(line, m)).filter(c => /gradient|^(?:rgba|hsla|color-mix)|\//.test(c)),
+      ...each(line, /#[0-9a-fA-F]{8}\b/g),
+    ]
+  },
+  interaction: line => [
+    ...each(line, /(?<![\w.$])on(?:Click|DoubleClick|ContextMenu|Pointer\w*|Mouse\w*|Drag\w*|Drop|Key\w*|Scroll|Wheel|Touch\w*|Input|Change|Submit)\s*=\s*(?=[{'"])|(?:(?<![\w@-])@|(?<![\w-])v-on:)(?:click|dblclick|contextmenu|pointer\w*|mouse\w*|drag\w*|drop|key\w*|scroll|wheel|touch\w*|input|change|submit)(?:\.[\w-]+)*\s*=\s*|(?<![\w-])v-model(?:[:.][\w-]+)*\s*=\s*/g, m => m[0].replace(/\s/g, '') + valueAfter(line, m)),
+    ...each(line, /(?<![\w-])draggable\b(?:\s*=\s*)?/g, m => m[0].includes('=') ? `draggable=${valueAfter(line, m)}` : 'draggable'),
+    ...each(line, /\baddEventListener\(\s*['"`]([\w-]+)['"`]/g, m => `addEventListener('${m[1]}')`),
+    ...each(line, GESTURE_LIBS, m => `import '${m[1]}'`),
+  ],
+  asset: line => [
+    ...each(line, /(?<=['"(]\s*)@project\/[^'"()\s]+/g),
+    ...each(line, /\b(?:from|import)\s*\(?\s*['"](\.{1,2}\/[^'"]+\.(?!(?:tsx?|jsx?|vue|css)['"])\w+)['"]/g, m => m[1]),
+  ],
+}
+
+// Text a user reads: between tags (prices and times too), `{'…'}` children, placeholder, label,
+// title and alt, a string prop that reads as words (`detail="The full workout"`), and a line that
+// is all text.
+function copyIn(line) {
+  const out = []
+  const keep = s => { s = s.replace(/\s+/g, ' ').trim(); if (/[\p{L}\p{N}]/u.test(s) && paired(s)) out.push(s) }
+  const whole = textLine(line)
+  if (whole) { keep(whole); return out }
+  for (const m of line.matchAll(/(?<![=-])>([^<>{}]+)(?=<|\{)|\}([^<>{}]+)(?=<)/g)) { const s = m[1] ?? m[2]; if (!CODE.test(s)) keep(s) }
+  const tail = line.match(/(?<![=-])>([^<>{}]+)$/)
+  if (tail && PROSE.test(tail[1].trim()) && !CODE.test(tail[1])) keep(tail[1])
+  for (const m of line.matchAll(/(?<!=\s*)\{\s*(['"`])([^'"`${}]*\p{L}[^'"`${}]*)\1\s*\}/gu)) if (!classy(m[2])) keep(m[2])
+  // Written `name="…"` with nothing around the `=`, as attributes are; `const x = '…'` is not one.
+  // A custom prop that takes classes (`c="size-4 text-zinc-400"`) is not copy either.
+  for (const m of line.matchAll(/(?<![\w:@.-])([a-zA-Z][\w-]*)=(['"])([^'"]*\p{L}[^'"]*)\2/gu)) {
+    if (/^(?:placeholder|aria-label|label|title|alt)$/.test(m[1]) || (/\s|[^\x00-\x7f]/.test(m[3]) && !NOT_COPY.test(m[1]) && !classy(m[3]))) keep(m[3])
+  }
+  return out
+}
+
+function handoff() {
+  const dir = sessionDir()
+  const s = need(dir)
+  const t = target(dir, args[0])
+  const meta = readMeta(dir, t.proto)
+  const pdir = join(dir, 'src', 'protos', t.proto)
+  const file = [STACKS[s.stack]?.ext, 'tsx', 'jsx', 'vue'].filter(Boolean).map(x => join(pdir, `${t.variant}.${x}`)).find(f => existsSync(f))
+  if (!file) die(`${t.proto}/${t.variant} has no file in ${tilde(pdir)}`)
+  const files = variantFiles(join(dir, 'src', 'protos'), file)
+  const rel = f => relative(pdir, f).split(sep).join('/')
+  // Each finding once, with every place it is: the same classes on twelve lines are one line to tick.
+  const found = { mark: new Map(), motion: new Map(), material: new Map(), interaction: new Map(), asset: new Map(), copy: new Map(), hints: new Map() }
+  const note = (group, tokens, f, n) => {
+    const key = tokens.join('\n'), g = found[group]
+    if (!g.has(key)) g.set(key, { tokens, at: new Map() })
+    const at = g.get(key).at, ns = at.get(f) || []
+    if (ns.at(-1) !== n) at.set(f, [...ns, n])
+  }
+  for (const { file: f } of files) {
+    const lines = sourceLines(f)
+    lines.forEach(({ n, line, css, shown }, i) => {
+      if (!line.trim()) return
+      for (const [group, find] of Object.entries(FIND)) {
+        const tokens = [...new Set(find(line, css, lines, i).map(x => x.replace(/\s+/g, ' ').replace(/`/g, '\'').trim()).filter(Boolean))]
+        const kept = tokens.filter(x => !tokens.some(y => y !== x && y.includes(x))).map(x => x.length > 80 ? `${x.slice(0, 79)}…` : x)
+        if (kept.length) note(group, kept, rel(f), n)
+      }
+      if (shown) copyIn(line).forEach(text => note('copy', [text.length > 80 ? `${text.slice(0, 79)}…` : text], rel(f), n))
+      if (/\buseHints\s*\(/.test(line)) note('hints', ['useHints'], rel(f), n)
+    })
+  }
+
+  const code = x => `\`${x}\``
+  const where = at => [...at].map(([f, ns]) => `${f}:${ns.slice(0, 12).join(', ')}${ns.length > 12 ? ` +${ns.length - 12}` : ''}`).join(' · ')
+  const items = group => [...found[group].values()].map(({ tokens, at }) => `${tokens.map(code).join(' ')} · ${where(at)}`)
+  const out = [`# Handoff: ${meta.title || t.proto} › ${t.variant} · ${t.name}`, '']
+  if (meta.ask) out.push(`- Asked: "${meta.ask}"`)
+  if (meta.about?.[t.variant]) out.push(`- About ${t.variant}: ${meta.about[t.variant]}`)
+  const [w, h] = meta.screen || [393, 852]
+  if (meta.kind === 'phone') out.push(`- Phone screen: ${w}×${h} pt (${w * 3}×${h * 3} px at 3x)`)
+  if (meta.picked) out.push(meta.picked === t.variant ? `- The user picked ${t.variant}` : `- The user picked ${meta.picked}, not ${t.variant}`)
+  const section = (title, list) => { if (list.length) out.push('', `## ${title}`, ...list.map(x => `- [ ] ${x}`)) }
+
+  section('Files', files.map(x => `${x.file}${x.by ? ` (imported by ${rel(x.by)})` : ''}`))
+  // The states this variant has, with its own note where it has one, else the first variant's.
+  const first = Object.keys(meta.variants || {}).sort((a, b) => a.length - b.length || a.localeCompare(b))[0]
+  const states = (Array.isArray(meta.states) ? meta.states : []).filter(x => x?.id && Array.isArray(x.click) && (!x.only?.length || x.only.includes(t.variant)))
+  section('States', states.map(x => {
+    const said = x.about?.[t.variant] || x.about?.[first]
+    return `${x.name || x.id} (${code(`${t.proto}/${t.variant}/${x.id}`)})${said ? `: ${said}` : ''} · click ${x.click.map(code).join(' then ')}`
+  }))
+  section('Marked elements', items('mark'))
+  section('Motion', items('motion'))
+  section('Materials', items('material'))
+  section('Interactions', items('interaction'))
+  section(`Assets (@project/ is ${s.project})`, items('asset'))
+  // Copy is the longest list and the least likely to be lost, so it stops at 30.
+  const copy = [...found.copy.values()].map(({ tokens, at }) => `"${tokens[0]}" · ${where(at)}`)
+  section('Copy', copy.length > 30 ? [...copy.slice(0, 30), `… ${copy.length - 30} more, in the files above`] : copy)
+  section('Try it', [...found.hints.values()].map(({ at }) => `Its Try it list (${code('useHints')}) · ${where(at)}: every value, scenario and thing to try works in the build too`))
+  const route = `${t.proto}/${t.variant}`, ref = x => `.proto/ref/${t.proto}/built-${t.variant}${x ? `-${x}` : ''}.png`
+  section('Then', [
+    'Build it with the project\'s own components and patterns: the variant shows what to build, its code is not the code to ship',
+    `Screenshot the built screen (${meta.kind === 'phone' ? `the phone at ${w}×${h} pt, 3x` : 'a browser 1440 wide'}) to ${join(dir, ref())}`,
+    `${code(`proto shoot ${route} --ref ${ref()} --as built`)}, read ${t.proto}-${t.variant}-vs-built.png and fix until the overlay shows no double edges`,
+    ...states.map(x => `${x.name || x.id}, built: screenshot it to ${ref(x.id)}, then ${code(`proto shoot ${route}/${x.id} --ref ${ref(x.id)} --as built`)}`),
+    'Tick each line above once the build has it, or say why it doesn\'t apply',
+  ])
+  console.log(out.join('\n'))
 }
 
 // ---------- the inbox ----------
@@ -730,7 +969,7 @@ async function snap() {
 }
 
 const commands = {
-  up, add, pick, work, ask, archive, shoot, snap, inbox, reply, gc: () => gc(false), ls,
+  up, add, pick, work, ask, archive, shoot, handoff, snap, inbox, reply, gc: () => gc(false), ls,
   stop: async () => { await stop(); console.log('stopped (files kept; proto up restarts it on the same link)') },
   rm: () => rm(),
   keep: () => { const dir = sessionDir(); need(dir); patchSession(dir, { keep: !flags.off }); console.log(flags.off ? 'no longer kept' : 'kept until deleted by hand') },

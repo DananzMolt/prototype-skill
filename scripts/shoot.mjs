@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Screenshot places in a prototype session at desktop and phone size: the stage only (the
 // design, or a lobby's grid), without the page's sidebar, bars and floating controls.
-// Usage: shoot.mjs <app-url> <out-dir> <route...> [--theme=dark] [--focus=1] [--click=<css>]... [--ref=<png>] [--phone=<slug,…>] [--sheet=<json>]
+// Usage: shoot.mjs <app-url> <out-dir> <route...> [--theme=dark] [--focus=1] [--click=<css>]... [--ref=<png> [--as=built]] [--phone=<slug,…>] [--sheet=<json>]
 // Routes are the page's hash routes: "/" (session lobby), "hero" (a prototype's lobby),
 // "hero/A" (one variant), "hero/A/open" (a state from its meta). Files are named
 // hero-A-desktop.png, hero-A-mobile-dark.png …
@@ -10,6 +10,8 @@
 // --ref=<png> (a screenshot of the real screen) shoots, per route, only the variant's screen alone
 // (hero-A-screen.png: a phone at 3x without its bezel, a web stage at 2x) and a contact sheet
 // (hero-A-vs-ref.png): the variant, the reference, and the two laid over each other.
+// With --as=built the png is the feature as built in the codebase: the sheet labels it Built and
+// is written as hero-A-vs-built.png, so Current's -vs-ref.png is still there to compare.
 //
 // --sheet=<json> (written by `proto shoot --sheet`) lists prototypes, each with its variants'
 // routes. After the single shots, each prototype gets one contact sheet (hero-sheet.png): a
@@ -52,6 +54,8 @@ const suffix = [flags.focus && 'focus', flags.theme === 'dark' && 'dark', clicks
 const fileOf = route => route.replace(/^\/+|\/+$/g, '').replace(/\//g, '-') || 'session'
 const phones = new Set(String(flags.phone || '').split(',').filter(Boolean))
 const phoneOnly = route => { const [slug, variant] = route.replace(/^\/+/, '').split('/'); return !!variant && phones.has(slug) }
+// What the --ref png is: a screenshot of the real screen, or of the variant once it is built.
+const vs = flags.as === 'built' ? { label: 'Built', name: 'vs-built' } : { label: 'Reference', name: 'vs-ref' }
 
 // Contact sheets are held to the same 2000 px, on both sides: Claude Code would shrink a bigger
 // one, throwing away the detail it exists for. A column narrower than MIN_COL shows too little
@@ -248,8 +252,8 @@ try {
       const img = (src, extra = '') => `<img src="${pathToFileURL(src).href}" style="height:${H}px;display:block;${extra}">`
       const panel = (label, body) => `<figure style="margin:0"><figcaption style="margin:0 0 12px">${label}</figcaption><div style="position:relative;height:${H}px;width:max-content">${body}</div></figure>`
       const html = `<!doctype html><body style="margin:0;padding:24px;display:flex;gap:24px;width:max-content;background:#18181b;color:#fff;font:600 22px system-ui">${
-        panel('Variant', img(screen))}${panel('Reference', img(flags.ref))}${panel('Overlay', img(flags.ref) + img(screen, 'position:absolute;inset:0 auto auto 0;opacity:.5'))}</body>`
-      const file = resolve(outDir, `${fileOf(route)}-vs-ref.png`)
+        panel('Variant', img(screen))}${panel(vs.label, img(flags.ref))}${panel('Overlay', img(flags.ref) + img(screen, 'position:absolute;inset:0 auto auto 0;opacity:.5'))}</body>`
+      const file = resolve(outDir, `${fileOf(route)}-${vs.name}.png`)
       await compose(html, file, 2400, H + 120)
       console.log(file)
     }
