@@ -168,10 +168,16 @@ writeFileSync(join(app, 'src', 'protos', 'home', 'A.tsx'), [
   'export default function A() {',
   '  return <a href={docs} data-shoot="go" onClick={() => console.log(icons)} className="transition-colors">Go</a>',
   '}',
+  // A comment opened at a line's very end, with a blank line in it, runs to its `*/`.
+  'const old = <div>{/*',
+  '',
+  '  <p className="animate-spin">gone</p>',
+  '*/}</div>',
 ].join('\n'))
 const globbed = proto(['handoff', 'home/A'])
 if (!/`onClick=\{\(\) => console\.log\(icons\)\}` · A\.tsx:4\b/.test(globbed)) fail('a glob string (./icons/*.svg) hid the click after it from proto handoff')
 if (!/`transition-colors` · A\.tsx:4\b/.test(globbed)) fail('a glob string (./icons/*.svg) hid the motion after it from proto handoff')
+if (/animate-spin/.test(globbed)) fail('proto handoff listed a class from inside a comment that opened at a line\'s end')
 
 proto(['snap', 'hero/A'])
 if (!existsSync(join(app, '.proto', 'snaps', 'hero-A.jsx'))) fail('proto snap wrote no hero-A.jsx')

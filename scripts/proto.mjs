@@ -624,7 +624,7 @@ function variantFiles(protos, first) {
 
 // A line's code without its comments, and what ends a block comment still open at its end (or
 // null). A `/*`, `//` or `<!--` inside a string is part of it ('./icons/*.svg', 'https://…'), so
-// the line's quotes are followed; an apostrophe after a letter (don't) opens no string. `//`
+// the line's quotes are followed; a quote after a letter (don't, ק"ג) opens no string. `//`
 // starts a comment only at the line's start or after a space, so a URL in JSX text stays.
 function uncomment(line, until) {
   let out = '', quote = '', i = 0
@@ -646,14 +646,15 @@ function uncomment(line, until) {
       i += step
       continue
     }
-    if (c === '"' || c === '`' || (c === '\'' && !/[\p{L}\p{N}]/u.test(line[i - 1] || ''))) quote = c
+    if (c === '`' || ((c === '"' || c === '\'') && !/[\p{L}\p{N}]/u.test(line[i - 1] || ''))) quote = c
     else if (line.startsWith('/*', i)) { until = '*/'; i += 2; continue }
     else if (line.startsWith('<!--', i)) { until = '-->'; i += 4; continue }
     else if (line.startsWith('//', i) && (i === 0 || /\s/.test(line[i - 1]))) break
     out += c
     i++
   }
-  return { code: out, until: null }
+  // A comment opened at the line's very end, or a blank line inside one, carries on.
+  return { code: out, until }
 }
 
 // A file's lines without their comments (a class or a word in a comment is not in the design),
