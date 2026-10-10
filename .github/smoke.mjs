@@ -1,7 +1,7 @@
 // End-to-end check of the skill on this machine: create a session app in a scratch project,
 // add prototypes (one built from another, one from two at once, one from the picks), screenshot
-// and snapshot them, open a state listed in meta.ts, then stop and delete the session. Run by
-// .github/workflows/smoke.yml on Windows, Linux and macOS.
+// them (one by one and on a contact sheet) and snapshot them, open a state listed in meta.ts,
+// then stop and delete the session. Run by .github/workflows/smoke.yml on Windows, Linux and macOS.
 import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { get } from 'node:http'
@@ -134,6 +134,22 @@ const stateOut = proto(['shoot', 'hero/A/open', 'hero/A/gone'])
 if (!pngs(shots).includes('hero-A-open-desktop.png')) fail('no hero-A-open-desktop.png')
 if (/nothing matches \[data-shoot=open\]/.test(stateOut)) fail('the state hero/A/open did not open')
 if (!/nothing matches \[data-shoot=missing\]/.test(stateOut)) fail('proto shoot did not report the state whose clicks match nothing')
+// One contact sheet per prototype: every variant, desktop above phone, no more than 2000 px
+// either way, printed alone, then one line for the singles. A third variant on home lets the
+// sheet take the whole width (two are held to its height instead). --sheet goes last: before a
+// slug it would take the slug as its value.
+proto(['add', 'home', '--variants', 'C:Map first'])
+const sheetOut = proto(['shoot', 'home', '--sheet'])
+const sheet = sheetOut.split(/\r?\n/)[0].trim()
+if (!sheet.endsWith('home-sheet.png') || !existsSync(sheet)) fail(`proto shoot --sheet should print home-sheet.png first, printed: ${sheetOut}`)
+const sheetHead = readFileSync(sheet)
+const [sw, sh] = [sheetHead.readUInt32BE(16), sheetHead.readUInt32BE(20)]
+if (sw < 1800 || sw > 2000 || sh > 2000) fail(`home-sheet.png is ${sw}x${sh}; it should be about 2000 wide and no taller`)
+if (sheetOut.split(/\r?\n/).filter(l => /\.png$/.test(l.trim())).length !== 1 || !/^6 single shots in /m.test(sheetOut)) fail(`proto shoot --sheet should print the sheet, then one line for its 6 singles: ${sheetOut}`)
+for (const want of ['home-A-desktop.png', 'home-C-mobile.png']) if (!pngs(shots).includes(want)) fail(`proto shoot --sheet wrote no ${want}`)
+// The same state across the variants that have it.
+proto(['shoot', 'hero', '--state', 'open', '--sheet'])
+if (!pngs(shots).includes('hero-open-sheet.png')) fail('proto shoot hero --state open --sheet wrote no hero-open-sheet.png')
 cpSync(shots, keepShots, { recursive: true })
 
 proto(['snap', 'hero/A'])

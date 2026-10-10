@@ -7,6 +7,7 @@
 //             [--from-picks]   built from every variant the user picked in this session
 //   proto shoot [route…] [--theme dark] [--focus] [--click <css>]  screenshots, e.g. hero hero/A hero/A/open
 //             [--ref <png>]   instead, the variant's screen beside that screenshot of the real one
+//   proto shoot [slug…] --sheet [--state <id>] [--theme dark]   every variant on one contact sheet per prototype
 //   proto snap <slug>[/<letter>]… [--width 672]   static HTML snapshots for a Claude Doc
 //   proto pick <slug> <letter> [--off]   the user chose this variant: marked in the page
 //   proto work <slug>/<letter> [--ask "…"] [--off]   the variant being worked on: pinned in the page
@@ -487,9 +488,11 @@ async function shoot() {
   if (!await running(s)) die('the server is stopped. Run: proto up')
   const out = resolve(flags.out || join(dir, '.proto', 'shots'))
   const clicked = new Set(argv.filter((a, i) => argv[i - 1] === '--click'))
-  const routes = args.filter(a => !clicked.has(a)).length ? args.filter(a => !clicked.has(a)) : ['']
+  let routes = args.filter(a => !clicked.has(a)).length ? args.filter(a => !clicked.has(a)) : ['']
   const extra = ['theme', 'focus'].filter(k => flags[k]).map(k => `--${k}=${flags[k] === true ? '1' : flags[k]}`)
   if (flags.ref === true) die('--ref takes a screenshot of the real screen: --ref <png>')
+  if (flags.ref && flags.sheet) die('--ref and --sheet are separate shots: run one, then the other')
+  if (flags.state && !flags.sheet) die(`--state goes with --sheet; one variant in a state is proto shoot <slug>/<letter>/${flags.state === true ? '<state>' : flags.state}`)
   if (flags.ref) {
     // Relative to where Claude stands, or to the app (where `.proto/ref/` lives).
     const ref = [resolve(flags.ref), resolve(dir, flags.ref)].find(f => existsSync(f))
@@ -498,11 +501,50 @@ async function shoot() {
   }
   // --click can repeat: each selector is clicked in order before the shot.
   argv.forEach((a, i) => { if (a === '--click' && argv[i + 1]) extra.push(`--click=${argv[i + 1]}`); else if (a.startsWith('--click=')) extra.push(a) })
+  // `--sheet hero` reads as the flag's value, so a string there is one more prototype. The list
+  // goes to shoot.mjs in a file of this run's own, gone once it is done.
+  const spec = flags.sheet && join(out, `.sheet-${process.pid}.json`)
+  if (spec) {
+    const sheets = sheetSpec(dir, [typeof flags.sheet === 'string' && flags.sheet, ...args.filter(a => !clicked.has(a))].filter(Boolean))
+    routes = sheets.flatMap(p => p.columns.map(c => c.route))
+    writeJson(spec, sheets)
+    extra.push(`--sheet=${spec}`)
+  }
   rtlCheck(dir, routes)
   const phones = new Set(routes.map(r => r.split('/')[0]).filter(slug => readMeta(dir, slug)?.kind === 'phone'))
   if (phones.size) extra.push(`--phone=${[...phones].join(',')}`)
   const r = run(process.execPath, [join(SKILL, 'scripts', 'shoot.mjs'), s.localUrl, out, ...routes.map(r => r || '/'), ...extra], { stdio: 'inherit' })
+  if (spec) rmSync(spec, { force: true })
   process.exit(r.status ?? 1)
+}
+
+// --sheet: every variant of each prototype named, or of every one not archived when none is (an
+// archived one still shoots when named). With --state, only the variants that have that state
+// (its `only`), each shot in it. shoot.mjs shoots them as single shots, then composes one
+// sheet per prototype from what this returns.
+function sheetSpec(dir, slugs) {
+  const root = join(dir, 'src', 'protos')
+  if (flags.state === true) die('--state takes the id of a state in meta.ts: --state <id>')
+  const stateOf = meta => flags.state ? (meta.states || []).find(x => x?.id === flags.state) : null
+  if (!slugs.length) {
+    try { slugs = readdirSync(root).filter(slug => { const m = readMeta(dir, slug); return m && !m.archived && (!flags.state || stateOf(m)) }) } catch { /* no prototypes yet */ }
+    if (!slugs.length) die(flags.state ? `no prototype here has a state "${flags.state}"` : 'no prototypes to shoot yet: proto add <slug> …')
+  }
+  return [...new Set(slugs)].map(slug => {
+    if (slug.includes('/')) die(`--sheet takes prototypes, not variants: proto shoot ${slug.split('/')[0]} --sheet`)
+    const meta = readMeta(dir, slug) || die(`no prototype "${slug}" here`)
+    const state = stateOf(meta)
+    if (flags.state && !state) die(`${slug} has no state "${flags.state}" (${(meta.states || []).map(x => x?.id).join(', ') || 'its meta.ts lists none'})`)
+    // The variants the page shows: the files named by a letter, in the page's order.
+    const ids = [...new Set(readdirSync(join(root, slug)).map(f => f.match(/^([A-Z]{1,2})\.(?:tsx|jsx|vue|svelte)$/)?.[1]).filter(Boolean))]
+      .sort((a, b) => a.length - b.length || a.localeCompare(b))
+      .filter(id => !state?.only?.length || state.only.includes(id))
+    if (!ids.length) die(`${slug} has no variants${state ? ` with the state "${state.id}"` : ''} to shoot`)
+    return {
+      name: `${slug}${state ? `-${state.id}` : ''}-sheet`, title: meta.title || slug, note: state ? `state: ${state.name || state.id}` : '', picked: meta.picked || '',
+      columns: ids.map(id => ({ route: [slug, id, state?.id].filter(Boolean).join('/'), id, name: meta.variants?.[id] || id })),
+    }
+  })
 }
 
 // A right-to-left prototype placed with left and right breaks the moment it mirrors (and a
