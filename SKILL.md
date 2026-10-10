@@ -148,11 +148,21 @@ screenshot's pixel positions: RTL layout comes from the flow, not from coordinat
 
 ## 3. Pick genuinely different directions
 
-N is 5 unless the user said otherwise ("/prototype 3 …"). Name each direction in a few words.
-Vary something structural: where it lives, how it is triggered, how much it shows, the
-interaction model. Two directions that differ only in color or spacing are one direction.
-With a Current, the directions are B onwards, and each keeps Current's chrome and visual
-language unless the direction is about them.
+**How many.** The user's number when they give one ("/prototype 3 …"). Otherwise the scope sets
+it: 5 for a screen or a flow, 3 for a component or a section, 2 for a choice between two
+behaviors (follow the system setting or not, a sheet or a page). More directions than the
+question has make the real ones harder to see.
+
+Name each direction in a few words. Vary something structural: where it lives, how it is
+triggered, how much it shows, the interaction model. Two directions that differ only in color
+or spacing are one direction. With a Current, the directions are B onwards, and each keeps
+Current's chrome and visual language unless the direction is about them.
+
+**Rearranging adds nothing.** When the user asks to rearrange, restyle, simplify or declutter
+what exists, every variant keeps exactly the product's features and content, and the
+directions differ in layout and emphasis only. On any request, a variant that adds something
+the product can't do yet puts `data-diff` on it and starts its `about` line with "New:", so an
+invented feature is never mistaken for one that ships.
 
 ## 4. Add the prototype, then build each variant
 
