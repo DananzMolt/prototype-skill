@@ -330,13 +330,13 @@ shows there as "You picked X".
 ## Comments from the page
 
 The user can leave comments on the design in the page (the Comment button, or C): click an
-element, write, tag other elements with `@`, attach a screenshot and mark it up, then send
-every draft at once. The side panel's Comments tab lists them and shows what became of each.
-Name the things worth pointing at with `data-shoot="…"`: it is how a comment, and the `@` menu,
-call an element ("Pricing card"), and without it they fall back to its text or tag. Each
-send is a batch waiting for you in the app's inbox. You hear about it only while you listen, so
-**at the end of every turn in a prototype session, listen**: run, in the background, with the
-Bash tool's longest timeout (2 hours),
+element (or, on a phone, hold a finger on a spot), write, tag other elements with `@`, attach a
+screenshot and mark it up, then send every draft at once. The side panel's Comments tab lists
+them and shows what became of each. Name the things worth pointing at with `data-shoot="…"`: it
+is how a comment, and the `@` menu, call an element ("Pricing card"), and without it they fall
+back to its text or tag. Each send is a batch waiting for you in the app's inbox. You hear
+about it only while you listen, so **at the end of every turn in a prototype session,
+listen**: run, in the background, with the Bash tool's longest timeout (2 hours),
 
 ```
 proto inbox --wait
@@ -349,8 +349,10 @@ something is listening.
 
 Each comment prints its route (`<slug>/<letter>[/<state>]`), the user's words, the element
 it is on (tag, text, `data-shoot` or selector, its box in CSS px from the variant's top left)
-and any elements it tags, and the absolute path of each screenshot attached to it. Read every
-screenshot. Then, per comment:
+and any elements it tags, and the absolute path of each screenshot attached to it. A comment
+pinned to a spot with a long press (on a phone, where no element fit) prints `at:` the spot, in
+the same px, and `in:` the element under it: the change is about that spot, not the whole
+element. Read every screenshot. Then, per comment:
 
 1. The same as a request typed in chat: `proto ask` (or `proto work … --ask`) in the user's
    words, then edit the variant.

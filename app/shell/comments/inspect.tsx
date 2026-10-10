@@ -2,7 +2,7 @@
 // the guard that keeps every press from reaching the design while commenting, and the live boxes
 // pins and outlines are drawn from.
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { describe, find, labelOf, seen } from './dom'
+import { describe, find, labelOf, seen, spot, spotAt } from './dom'
 import { Icon } from './ui'
 import type { Box, Target } from './types'
 import { useCtx } from './ctx'
@@ -10,6 +10,8 @@ import { useCtx } from './ctx'
 export const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 export const GLIDE_MS = 220
 export const FADE_MS = 150
+/** How long a finger holds still on the design to pin a comment to that spot. */
+export const HOLD_MS = 500
 
 /**
  * One box that follows whatever it is told to point at: it glides between targets with a long
@@ -41,7 +43,7 @@ export function Glide<T extends { box: Box }>({ item, pad, className = '', style
   )
 }
 
-/** Live boxes (from the layer's corner) for each element, kept in step with scrolling, resizing and reloads. */
+/** Live boxes (from the layer's corner) for each element, or an empty box on a pinned spot, kept in step with scrolling, resizing and reloads. */
 export function useBoxes(list: { id: string; t: Target }[]) {
   const { host } = useCtx()
   const [boxes, setBoxes] = useState<Record<string, Box>>({})
@@ -52,7 +54,7 @@ export function useBoxes(list: { id: string; t: Target }[]) {
     const tick = () => {
       const mount = host.mount()
       const next: Record<string, Box> = {}
-      if (mount) for (const x of list) { const el = find(mount, x.t), b = el && seen(el, mount, host.layer); if (b) next[x.id] = b }
+      if (mount) for (const x of list) { const el = find(mount, x.t), b = el && (x.t.point ? spotAt(x.t, el, mount, host.layer) : seen(el, mount, host.layer)); if (b) next[x.id] = b }
       const s = JSON.stringify(next)
       if (s !== last) { last = s; setBoxes(next) }
       raf = requestAnimationFrame(tick)
@@ -69,12 +71,15 @@ export type Inspect = { box: Box; label: string; touch: boolean; parent: string 
 /**
  * While commenting, the design is only looked at, never used: no press, tap or key reaches it.
  * A mouse inspects by hovering and acts on click. A finger inspects with the first tap and acts
- * with a second tap on the same element (a drag still scrolls). `on` is picking (the act starts
- * a comment, or a tag); `guard` is a comment being written (the act is `onGuard`).
+ * with a second tap on the same element (a drag still scrolls), or holds still for HOLD_MS to act
+ * on that exact spot, for when no element fits. `on` is picking (the act starts a comment, or a
+ * tag); `guard` is a comment being written (the act is `onGuard`). `hold` is a finger holding,
+ * from the layer's corner.
  */
 export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Target) => void; onCancel: () => void; onGuard: (t: Target) => void }) {
   const { host } = useCtx()
   const [hover, setHover] = useState<Inspect>(null)
+  const [hold, setHold] = useState<{ x: number; y: number } | null>(null)
   const hoverRef = useRef<Inspect>(null)
   hoverRef.current = hover
   const cb = useRef(handlers)
@@ -82,14 +87,24 @@ export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Tar
   const cur = useRef<HTMLElement | null>(null)
   // Set once the outline was moved up to a parent: a click then means that parent, not what is under the pointer.
   const raised = useRef(false)
+  // When a long press last pinned. Pinning opens the composer, which sets these listeners up
+  // again, so the lift of that same finger, and the click it makes, are known here instead.
+  const pinnedAt = useRef(0)
   const act = useRef<(el: HTMLElement) => void>(() => {})
   const raise = useRef<() => void>(() => {})
   useEffect(() => {
     cur.current = null
     setHover(null)
+    setHold(null)
     raised.current = false
     if (!on && !guard) return
-    const inDesign = (t: EventTarget | null) => { const m = host.mount(); return m && t instanceof HTMLElement && m.contains(t) ? t : null }
+    // An SVG part (an icon, a chart) stands for the nearest HTML element around it.
+    const inDesign = (t: EventTarget | null) => {
+      let el = t instanceof Element ? t : null
+      while (el && !(el instanceof HTMLElement)) el = el.parentElement
+      const m = host.mount()
+      return m && el && m.contains(el) ? el as HTMLElement : null
+    }
     const part = (t: EventTarget | null) => { const el = inDesign(t); return el && el !== host.mount() ? el : null }
     const parentOf = (el: HTMLElement) => { const m = host.mount(), p = el.parentElement; return m && p && p !== m && m.contains(p) ? p : null }
     const show = (el: HTMLElement | null, touch: boolean) => {
@@ -131,8 +146,39 @@ export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Tar
     // so a finger can still scroll the page.
     const press = (e: Event) => { if (!inDesign(e.target)) return; e.stopPropagation(); if (!(e instanceof PointerEvent) || e.pointerType === 'mouse') e.preventDefault() }
     let start: { x: number; y: number } | null = null
-    const touchStart = (e: TouchEvent) => { if (!inDesign(e.target)) return; e.stopPropagation(); const t = e.touches[0]; start = { x: t.clientX, y: t.clientY } }
+    // A finger that stays put for HOLD_MS pins the comment where it is; moving lets it scroll.
+    let holdTimer = 0
+    const letGo = () => { clearTimeout(holdTimer); setHold(null) }
+    const justPinned = () => performance.now() - pinnedAt.current < 1500
+    const pin = (el: HTMLElement, x: number, y: number) => {
+      pinnedAt.current = performance.now()
+      setHold(null)
+      show(null, true)
+      navigator.vibrate?.(10)
+      const t = spot(host.mount()!, el, x, y)
+      if (on) cb.current.onPick(t); else cb.current.onGuard(t)
+    }
+    const touchStart = (e: TouchEvent) => {
+      if (!inDesign(e.target)) return
+      e.stopPropagation()
+      letGo()
+      pinnedAt.current = 0
+      if (e.touches.length > 1) { start = null; return }
+      const t = e.touches[0], el = part(e.target)
+      start = { x: t.clientX, y: t.clientY }
+      if (!el) return
+      const L = host.layer.getBoundingClientRect()
+      setHold({ x: t.clientX - L.left, y: t.clientY - L.top })
+      holdTimer = window.setTimeout(() => pin(el, t.clientX, t.clientY), HOLD_MS)
+    }
+    const touchMove = (e: TouchEvent) => {
+      const t = e.touches[0]
+      if (start && t && Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) letGo()
+    }
+    const touchCancel = () => { letGo(); start = null }
     const touchEnd = (e: TouchEvent) => {
+      letGo()
+      if (justPinned()) { start = null; e.preventDefault(); e.stopPropagation(); return }
       if (!inDesign(e.target) || !start) return
       e.stopPropagation()
       const t = e.changedTouches[0], moved = Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10
@@ -148,6 +194,7 @@ export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Tar
     const click = (e: MouseEvent) => {
       if (!inDesign(e.target)) return
       e.preventDefault(); e.stopPropagation()
+      if (justPinned()) return
       settle()
       const el = part(e.target)
       if (el) act.current(raised.current && cur.current?.contains(el) ? cur.current : el)
@@ -175,20 +222,36 @@ export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Tar
     const scroll = () => { const m = host.mount(), box = cur.current && m && seen(cur.current, m, host.layer); if (box) setHover(h => h && { ...h, box }) }
     const opts = { capture: true, passive: false } as const
     const stage = host.layer.parentElement!
+    // On a touch screen a held finger selects text and opens the callout; commenting holds on purpose.
+    const designs = matchMedia('(pointer: coarse)').matches ? stage.querySelector<HTMLElement>('[data-layers]') : null
+    designs?.style.setProperty('user-select', 'none')
+    designs?.style.setProperty('-webkit-user-select', 'none')
+    designs?.style.setProperty('-webkit-touch-callout', 'none')
+    const noMenu = (e: Event) => { if (inDesign(e.target)) e.preventDefault() }
     stage.addEventListener('pointermove', move)
     for (const t of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'dblclick', 'contextmenu']) document.addEventListener(t, press, true)
     document.addEventListener('touchstart', touchStart, opts)
     document.addEventListener('touchend', touchEnd, opts)
+    document.addEventListener('touchmove', touchMove, opts)
+    document.addEventListener('touchcancel', touchCancel, opts)
+    document.addEventListener('contextmenu', noMenu, true)
+    document.addEventListener('selectstart', noMenu, true)
     document.addEventListener('click', click, true)
     document.addEventListener('keydown', key, true)
     stage.addEventListener('scroll', scroll, true)
     return () => {
       settle()
+      letGo()
+      for (const k of ['user-select', '-webkit-user-select', '-webkit-touch-callout']) designs?.style.removeProperty(k)
       cancelAnimationFrame(raf)
       stage.removeEventListener('pointermove', move)
       for (const t of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'dblclick', 'contextmenu']) document.removeEventListener(t, press, true)
       document.removeEventListener('touchstart', touchStart, opts)
       document.removeEventListener('touchend', touchEnd, opts)
+      document.removeEventListener('touchmove', touchMove, opts)
+      document.removeEventListener('touchcancel', touchCancel, opts)
+      document.removeEventListener('contextmenu', noMenu, true)
+      document.removeEventListener('selectstart', noMenu, true)
       document.removeEventListener('click', click, true)
       document.removeEventListener('keydown', key, true)
       stage.removeEventListener('scroll', scroll, true)
@@ -196,7 +259,25 @@ export function usePick(on: boolean, guard: boolean, handlers: { onPick: (t: Tar
   }, [on, guard, host])
   /** Acts on what a finger inspected, from the outline's own button. */
   const confirm = () => { if (cur.current) act.current(cur.current) }
-  return { hover, confirm, up: () => raise.current() }
+  return { hover, hold, confirm, up: () => raise.current() }
+}
+
+/** A ring that fills under a holding finger, so a long press shows it is counting. */
+export function HoldRing({ at }: { at: { x: number; y: number } | null }) {
+  const ring = useRef<SVGCircleElement>(null)
+  useLayoutEffect(() => {
+    if (!at || !ring.current) return
+    // It waits a beat before showing, so a plain tap doesn't flash it.
+    const a = ring.current.animate([{ strokeDashoffset: 120 }, { strokeDashoffset: 0 }], { duration: HOLD_MS - 120, delay: 120, easing: 'linear', fill: 'both' })
+    return () => a.cancel()
+  }, [at])
+  if (!at) return null
+  return (
+    <svg className="pointer-events-none absolute z-30 size-14 -rotate-90 animate-[spot-fade_120ms_120ms_both]" style={{ left: at.x - 28, top: at.y - 28 }} viewBox="0 0 56 56">
+      <circle cx="28" cy="28" r="19" className="fill-proto-primary/15 stroke-white/70" strokeWidth="5" />
+      <circle ref={ring} cx="28" cy="28" r="19" fill="none" className="stroke-proto-primary-ring" strokeWidth="3" strokeLinecap="round" strokeDasharray="120" strokeDashoffset="120" />
+    </svg>
+  )
 }
 
 /**

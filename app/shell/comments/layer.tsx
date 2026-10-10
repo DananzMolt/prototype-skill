@@ -1,9 +1,10 @@
 // Over the design: the outline on what the pointer is on, a numbered pin on each commented
-// element, the composer beside the one being written, and a sent comment's card.
+// element (or on the spot itself, for one pinned with a long press), the ring under a holding
+// finger, the composer beside the one being written, and a sent comment's card.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useCtx } from './ctx'
 import { describe } from './dom'
-import { HoverBox, useBoxes, usePick } from './inspect'
+import { HoldRing, HoverBox, useBoxes, usePick } from './inspect'
 import { Composer } from './composer'
 import { useRows } from './list'
 import { progress, type Said } from './store'
@@ -15,10 +16,15 @@ function Pins({ items, boxes, active, onOpen }: { items: { item: Item; done: boo
     const b = boxes[c.id]
     if (!b) return null
     const on = active === c.id
+    // A spot's pin sits on the spot; an element's on its top right corner.
+    const pt = !!c.target.point
+    const ring = done ? 'ring-emerald-500' : 'ring-proto-primary-ring'
     return (
       <div key={c.id}>
-        {on && <div className={`pointer-events-none absolute z-10 rounded-md ring-2 ${done ? 'ring-emerald-500' : 'ring-proto-primary-ring'}`} style={{ left: b.x - 3, top: b.y - 3, width: b.w + 6, height: b.h + 6 }} />}
-        {!done && <button onClick={() => onOpen(c.id)} aria-label={`Comment ${c.n}`} className="pointer-events-auto absolute z-20 rounded-full shadow-md ring-2 ring-white transition hover:scale-110 dark:ring-zinc-950" style={{ left: b.x + b.w - 10, top: b.y - 10 }}>
+        {on && (pt
+          ? <div className={`pointer-events-none absolute z-10 size-8 rounded-full ring-2 ${ring}`} style={{ left: b.x - 16, top: b.y - 16 }} />
+          : <div className={`pointer-events-none absolute z-10 rounded-md ring-2 ${ring}`} style={{ left: b.x - 3, top: b.y - 3, width: b.w + 6, height: b.h + 6 }} />)}
+        {!done && <button onClick={() => onOpen(c.id)} aria-label={`Comment ${c.n}`} className="pointer-events-auto absolute z-20 rounded-full shadow-md ring-2 ring-white transition hover:scale-110 dark:ring-zinc-950" style={pt ? { left: b.x - 10, top: b.y - 10 } : { left: b.x + b.w - 10, top: b.y - 10 }}>
           <PinDot n={c.n} />
         </button>}
       </div>
@@ -34,7 +40,7 @@ export function Layer() {
   const editing = m.kind === 'compose' || m.kind === 'tag' ? m : null
   const editedItem = editing?.id ? s.items.find(x => x.id === editing.id) : undefined
 
-  const { hover, confirm, up } = usePick(picking && !!s.place, m.kind === 'compose' && !!s.place, {
+  const { hover, hold, confirm, up } = usePick(picking && !!s.place, m.kind === 'compose' && !!s.place, {
     onPick: t => (m.kind === 'tag' ? act.tagDone(t) : act.begin(t)),
     onCancel: () => (m.kind === 'tag' ? act.tagDone(null) : act.stop()),
     onGuard: act.guard,
@@ -65,6 +71,7 @@ export function Layer() {
   return (
     <>
       <HoverBox hover={hover} verb={verb} onConfirm={confirm} onUp={up} />
+      <HoldRing at={hold} />
       <Pins items={here.map(r => ({ item: r.item, done: r.state === 'done' }))} boxes={boxes} active={s.active} onOpen={act.open} />
       {editing && (
         <Composer key={editing.id ?? editing.target.selector} target={editing.target} n={editedItem?.n ?? nextN} place={boxes[editing.id ?? '__new'] ?? null}

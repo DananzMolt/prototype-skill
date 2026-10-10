@@ -296,6 +296,8 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
   }
 
   // ---------- skeleton ----------
+  // A comment being written lifts its layer over the side panel and its edge tabs (z-20), which
+  // otherwise cover the composer's buttons where it docks at the bottom of a phone.
   root.innerHTML = `<div class="flex h-dvh bg-white text-[13px] text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
     <aside data-side></aside>
     <div data-grip role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" title="Drag to resize · double-click to reset" class="group relative z-40 -mx-1 hidden w-2 shrink-0 cursor-col-resize touch-none outline-none">
@@ -306,7 +308,7 @@ export function createShell(root: HTMLElement, opts: { mount: Mount; protos: Pro
       <div data-zone>
         <div data-layers class="absolute inset-0 overflow-hidden" style="right:var(--hw,0px);bottom:var(--pill-h,0px)"></div>
         <div data-spot class="pointer-events-none absolute inset-0 z-[15] overflow-hidden" style="right:var(--hw,0px);bottom:var(--pill-h,0px)"></div>
-        <div data-comments class="pointer-events-none absolute inset-0 z-[16]" style="right:var(--hw,0px);bottom:var(--pill-h,0px)"></div>
+        <div data-comments class="pointer-events-none absolute inset-0 z-[16] has-[[data-composer]]:z-[25]" style="right:var(--hw,0px);bottom:var(--pill-h,0px)"></div>
         <div data-overlay></div>
         <div data-pill></div>
         <div data-scale-card></div>
