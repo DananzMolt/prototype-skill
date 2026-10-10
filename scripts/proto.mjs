@@ -622,6 +622,40 @@ function variantFiles(protos, first) {
   return files
 }
 
+// A line's code without its comments, and what ends a block comment still open at its end (or
+// null). A `/*`, `//` or `<!--` inside a string is part of it ('./icons/*.svg', 'https://…'), so
+// the line's quotes are followed; an apostrophe after a letter (don't) opens no string. `//`
+// starts a comment only at the line's start or after a space, so a URL in JSX text stays.
+function uncomment(line, until) {
+  let out = '', quote = '', i = 0
+  while (i < line.length) {
+    if (until) {
+      const end = line.indexOf(until, i)
+      if (end < 0) return { code: out, until }
+      i = end + until.length
+      // A JSX comment, `{/* … */}`, goes with its braces.
+      if (until === '*/' && line[i] === '}' && /\{\s*$/.test(out)) { out = out.replace(/\{\s*$/, ''); i++ }
+      until = null
+      continue
+    }
+    const c = line[i]
+    if (quote) {
+      const step = c === '\\' ? 2 : 1
+      if (c === quote) quote = ''
+      out += line.slice(i, i + step)
+      i += step
+      continue
+    }
+    if (c === '"' || c === '`' || (c === '\'' && !/[\p{L}\p{N}]/u.test(line[i - 1] || ''))) quote = c
+    else if (line.startsWith('/*', i)) { until = '*/'; i += 2; continue }
+    else if (line.startsWith('<!--', i)) { until = '-->'; i += 4; continue }
+    else if (line.startsWith('//', i) && (i === 0 || /\s/.test(line[i - 1]))) break
+    out += c
+    i++
+  }
+  return { code: out, until: null }
+}
+
 // A file's lines without their comments (a class or a word in a comment is not in the design),
 // each saying whether it is CSS and whether its text is shown: a .vue file shows its <template>
 // and styles in its <style>, a .tsx shows all of it, and a .ts helper shows nothing.
@@ -630,11 +664,8 @@ function sourceLines(f) {
   let block = null, until = null
   return readFileSync(f, 'utf8').split(/\r?\n/).map((raw, i) => {
     if (kind === 'vue' && /^<(template|script|style)\b/.test(raw)) block = raw.match(/^<(\w+)/)[1]
-    let line = raw
-    if (until) { const end = line.indexOf(until); line = end < 0 ? '' : line.slice(end + until.length); if (end >= 0) until = null }
-    line = line.replace(/\{\/\*.*?\*\/\}|\/\*.*?\*\/|<!--.*?-->/g, '').replace(/(?:^|\s)\/\/.*$/, '')
-    const open = line.match(/\/\*|<!--/)
-    if (open) { until = open[0] === '/*' ? '*/' : '-->'; line = line.slice(0, open.index) }
+    const { code: line, until: open } = uncomment(raw, until)
+    until = open
     const at = { n: i + 1, line, css: kind === 'css' || block === 'style', shown: kind === 'jsx' || block === 'template' }
     if (kind === 'vue' && /^<\/(template|script|style)>/.test(raw)) block = null
     return at

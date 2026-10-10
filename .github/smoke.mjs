@@ -161,6 +161,17 @@ if (!/^- \[ \] `onClick=\{\(\) => setOpen\(true\)\}` · A\.tsx:6\b/m.test(handof
 if (!/useHints.* · A\.tsx:5\b/.test(handoff)) fail('proto handoff did not point at the Try it list on A.tsx:5')
 if (!/proto shoot hero\/A --ref \S+ --as built/.test(handoff)) fail('proto handoff did not end with the shoot that checks the build')
 proto(['handoff', 'hero/Z'], { ok: false })
+// A `/*` or `//` inside a string (a glob, a URL) is not a comment: the lines after it still count.
+writeFileSync(join(app, 'src', 'protos', 'home', 'A.tsx'), [
+  'const icons = import.meta.glob(\'./icons/*.svg\', { eager: true })',
+  'const docs = \'https://example.com/guide // not a comment\'',
+  'export default function A() {',
+  '  return <a href={docs} data-shoot="go" onClick={() => console.log(icons)} className="transition-colors">Go</a>',
+  '}',
+].join('\n'))
+const globbed = proto(['handoff', 'home/A'])
+if (!/`onClick=\{\(\) => console\.log\(icons\)\}` · A\.tsx:4\b/.test(globbed)) fail('a glob string (./icons/*.svg) hid the click after it from proto handoff')
+if (!/`transition-colors` · A\.tsx:4\b/.test(globbed)) fail('a glob string (./icons/*.svg) hid the motion after it from proto handoff')
 
 proto(['snap', 'hero/A'])
 if (!existsSync(join(app, '.proto', 'snaps', 'hero-A.jsx'))) fail('proto snap wrote no hero-A.jsx')
